@@ -1,0 +1,216 @@
+# ==============================================================================
+# LANScanner — macOS 专用构建配置
+# 支持: Intel (x86_64) + Apple Silicon (arm64)
+# 最低兼容: macOS Big Sur 11.0
+#
+# 使用方法:
+#   1. Fork https://github.com/ChickmagnetL/LANScanner
+#   2. 在 Fork 仓库中创建 .github/workflows/build-macos.yml
+#   3. 粘贴本文件内容，提交推送
+#   4. 推送代码 / 创建 tag / 手动触发 → 自动编译
+#
+# 产物:
+#   - LANScanner-macos-x86_64.zip  (Intel Mac, 兼容 Big Sur+)
+#   - LANScanner-macos-arm64.zip   (Apple Silicon, 兼容 Big Sur+)
+# ==============================================================================
+
+name: Build LANScanner (macOS)
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: macOS (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-13        # Ventura, Intel runner
+            suffix: x86_64
+          - target: aarch64-apple-darwin
+            runner: macos-14        # Sonoma, Apple Silicon runner
+            suffix: arm64
+
+    steps:
+      # ---- 1. 拉取代码 ----
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- 2. 安装 Rust ----
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Print environment info
+        run: |
+          echo "Rust: $(rustc --version)"
+          echo "OS:   $(sw_vers -productName) $(sw_vers -productVersion)"
+          echo "Arch: $(uname -m)"
+          echo "Xcode: $(xcode-select -p)"
+
+      # ---- 3. 缓存 ----
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-${{ matrix.target }}-
+
+      # ---- 4. 编译 ----
+      - name: Build LANScanner
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"   # 最低兼容 Big Sur
+        run: |
+          cargo build \
+            --locked --release \
+            --target ${{ matrix.target }} \
+            -p lanscanner-app
+
+      # ---- 5. 打包 .app ----
+      - name: Create .app bundle
+        run: |
+          set -euo pipefail
+
+          BIN="target/${{ matrix.target }}/release/LANScanner"
+          OUT="release/macos/LANScanner.app"
+          RES="target/_macos_res"
+
+          # ---- 读取版本 ----
+          VERSION=$(awk '
+            /^\[workspace\.package\]/ { s=1; next }
+            s && /^\[/ { s=0 }
+            s && $1=="version" { gsub(/"/,"",$3); print $3; exit }
+          ' Cargo.toml)
+
+          # ---- 提取图标 (从 .ico 取最大 PNG) ----
+          mkdir -p "$RES"
+          python3 <<'PY' "$RES/LANScanner.png"
+          import struct, sys
+          src = "crates/app/assets/lanscanner.ico"
+          dst = sys.argv[1]
+          with open(src, "rb") as f:
+              d = f.read()
+          cnt = struct.unpack_from("<HHHHHH", d, 0)[5]
+          best = None
+          for i in range(cnt):
+              off = 6 + 16 * i
+              w, h, bpp, _, _, io, sz = struct.unpack_from("<BBBBII", d, off)
+              if w == 0: w = 256
+              if h == 0: h = 256
+              chunk = d[io:io+sz]
+              if best is None or w*h > best[0]:
+                  best = (w*h, chunk)
+          if best is None:
+              raise SystemExit("no icon found")
+          with open(dst, "wb") as f:
+              f.write(best[1])
+          PY
+
+          # ---- 生成 iconset & .icns ----
+          ICONSET="$RES/lan.iconset"
+          rm -rf "$ICONSET"
+          mkdir -p "$ICONSET"
+          for s in 16 32 128 256 512; do
+            sips -s format png -z $s $s "$RES/LANScanner.png" \
+              --out "$ICONSET/icon_${s}x${s}.png" 2>/dev/null || true
+            d=$((s*2))
+            sips -s format png -z $d $d "$RES/LANScanner.png" \
+              --out "$ICONSET/icon_${s}x${s}@2x.png" 2>/dev/null || true
+          done
+
+          # ---- 组装 .app 目录 ----
+          rm -rf "$OUT"
+          mkdir -p "$OUT/Contents/MacOS"
+          mkdir -p "$OUT/Contents/Resources"
+          cp "$BIN" "$OUT/Contents/MacOS/LANScanner"
+          chmod +x "$OUT/Contents/MacOS/LANScanner"
+
+          iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/LANScanner.icns" 2>/dev/null || true
+
+          # ---- Info.plist ----
+          cat > "$OUT/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>LANScanner</string>
+            <key>CFBundleIconFile</key>
+            <string>LANScanner</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.lanscanner.desktop</string>
+            <key>CFBundleName</key>
+            <string>LANScanner</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "=== .app bundle ==="
+          find "$OUT" -type f | head -20
+
+      # ---- 6. 压缩 ----
+      - name: Zip artifact
+        run: |
+          cd release/macos
+          zip -r -9 "../../LANScanner-macos-${{ matrix.suffix }}.zip" LANScanner.app
+
+      # ---- 7. 上传 ----
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: LANScanner-macos-${{ matrix.suffix }}
+          path: LANScanner-macos-${{ matrix.suffix }}.zip
+          retention-days: 30
+
+  # ===========================================================================
+  # 创建 Release（仅在推送 v* tag 时执行）
+  # ===========================================================================
+  release:
+    name: Publish Release
+    needs: build-macos
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List
+        run: find artifacts/ -type f -name "*.zip" | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
