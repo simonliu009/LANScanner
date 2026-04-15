@@ -100,8 +100,8 @@ jobs:
 
           # ---- 提取图标 (从 .ico 取最大 PNG) ----
           mkdir -p "$RES"
-          python3 <<'PY' "$RES/LANScanner.png"
-          import struct, sys
+          python3 - "$RES/LANScanner.png" <<'PY'
+          import struct, sys, os
           src = "crates/app/assets/lanscanner.ico"
           dst = sys.argv[1]
           with open(src, "rb") as f:
@@ -122,15 +122,20 @@ jobs:
               f.write(best[1])
           PY
 
+          # 用 sips 转为标准 PNG（确保 iconutil 可用）
+          sips -s format png "$RES/LANScanner.png" --out "$RES/LANScanner_std.png" >/dev/null 2>&1 || true
+
           # ---- 生成 iconset & .icns ----
           ICONSET="$RES/lan.iconset"
+          SRC_PNG="$RES/LANScanner_std.png"
+          [ -f "$SRC_PNG" ] || SRC_PNG="$RES/LANScanner.png"
           rm -rf "$ICONSET"
           mkdir -p "$ICONSET"
           for s in 16 32 128 256 512; do
-            sips -s format png -z $s $s "$RES/LANScanner.png" \
+            sips -s format png -z $s $s "$SRC_PNG" \
               --out "$ICONSET/icon_${s}x${s}.png" 2>/dev/null || true
             d=$((s*2))
-            sips -s format png -z $d $d "$RES/LANScanner.png" \
+            sips -s format png -z $d $d "$SRC_PNG" \
               --out "$ICONSET/icon_${s}x${s}@2x.png" 2>/dev/null || true
           done
 
