@@ -75,7 +75,7 @@ jobs:
       # ---- 4. 编译 ----
       - name: Build LANScanner
         env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"   # 最低兼容 Big Sur
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: |
           cargo build \
             --locked --release \
@@ -98,22 +98,22 @@ jobs:
             s && $1=="version" { gsub(/"/,"",$3); print $3; exit }
           ' Cargo.toml)
 
-          # ---- 提取图标 (从 .ico 取最大 PNG) ----
+          # ---- 提取图标 (从仓库中的 .ico 取最大 256x256 PNG) ----
           mkdir -p "$RES"
           python3 - "$RES/LANScanner.png" <<'PY'
-          import struct, sys, os
+          import struct, sys
           src = "crates/app/assets/lanscanner.ico"
           dst = sys.argv[1]
           with open(src, "rb") as f:
               d = f.read()
-          cnt = struct.unpack_from("<HHHHHH", d, 0)[5]
+          cnt = struct.unpack_from("<H", d, 4)[0]
           best = None
           for i in range(cnt):
               off = 6 + 16 * i
-              w, h, bpp, _, _, io, sz = struct.unpack_from("<BBBBII", d, off)
+              w, h, cc, r, planes, bpp, size, foff = struct.unpack_from("<BBBBHHII", d, off)
               if w == 0: w = 256
               if h == 0: h = 256
-              chunk = d[io:io+sz]
+              chunk = d[foff:foff+size]
               if best is None or w*h > best[0]:
                   best = (w*h, chunk)
           if best is None:
@@ -122,7 +122,7 @@ jobs:
               f.write(best[1])
           PY
 
-          # 用 sips 转为标准 PNG（确保 iconutil 可用）
+          # 用 sips 确保是标准 PNG
           sips -s format png "$RES/LANScanner.png" --out "$RES/LANScanner_std.png" >/dev/null 2>&1 || true
 
           # ---- 生成 iconset & .icns ----
