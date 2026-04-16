@@ -37,7 +37,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            runner: macos-13        # Ventura, Intel runner
+            runner: macos-14        # Ventura, Intel runner
             suffix: x86_64
           - target: aarch64-apple-darwin
             runner: macos-14        # Sonoma, Apple Silicon runner
