@@ -28,6 +28,7 @@ enum PlaceholderVisual {
 pub fn view<'a, Message>(
     devices: &'a [Device],
     selected_device_id: Option<&'a str>,
+    local_ip: Option<&'a str>,
     app_language: AppLanguage,
     on_select: impl Fn(String) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
@@ -42,24 +43,35 @@ where
         column!().spacing(4).padding([12.0, 12.0]),
         |column, device| {
             let is_selected = selected_device_id == Some(device.id.as_str());
+            let is_local = local_ip == Some(device.ip.as_str());
             let select_message = on_select(device.id.clone());
             let item = button(
                 row![
                     row![
-                        device_icon(device.device_type, is_selected),
+                        device_icon(device.device_type, is_selected, is_local),
                         column![
-                            text(&device.name).font(fonts::semibold()).size(14).style(
-                                move |theme: &Theme| {
-                                    let palette = colors::palette(theme);
+                            row![
+                                text(&device.name).font(fonts::semibold()).size(14).style(
+                                    move |theme: &Theme| {
+                                        let palette = colors::palette(theme);
 
-                                    if is_selected {
-                                        theme::solid_text(palette.primary)
-                                    } else {
-                                        theme::text_primary(theme)
+                                        if is_selected {
+                                            theme::solid_text(palette.primary)
+                                        } else {
+                                            theme::text_primary(theme)
+                                        }
                                     }
-                                }
+                                ),
+                                local_badge(is_local, app_language),
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                            ip_selection_affordance(
+                                &device.ip,
+                                is_selected,
+                                is_local,
+                                app_language
                             ),
-                            ip_selection_affordance(&device.ip, is_selected),
                         ]
                         .spacing(5)
                         .width(Fill),
@@ -85,6 +97,12 @@ where
                     } else {
                         colors::LIGHT_SELECTION
                     }
+                } else if is_local {
+                    if is_dark {
+                        colors::rgba(0x3B, 0x82, 0xF6, 0.10)
+                    } else {
+                        colors::rgba(0x3B, 0x82, 0xF6, 0.06)
+                    }
                 } else {
                     match status {
                         button::Status::Hovered | button::Status::Pressed => {
@@ -109,10 +127,16 @@ where
                             } else {
                                 colors::rgba(0x3B, 0x82, 0xF6, 0.2)
                             }
+                        } else if is_local {
+                            if is_dark {
+                                colors::rgba(0x3B, 0x82, 0xF6, 0.28)
+                            } else {
+                                colors::rgba(0x3B, 0x82, 0xF6, 0.18)
+                            }
                         } else {
                             iced::Color::TRANSPARENT
                         },
-                        width: if is_selected { 1.0 } else { 0.0 },
+                        width: if is_selected || is_local { 1.0 } else { 0.0 },
                         radius: border::radius(12),
                     },
                     shadow: iced::Shadow::default(),
@@ -131,21 +155,30 @@ where
         .into()
 }
 
-fn ip_selection_affordance<'a, Message>(ip: &'a str, selected: bool) -> Element<'a, Message>
+fn ip_selection_affordance<'a, Message>(
+    ip: &'a str,
+    selected: bool,
+    is_local: bool,
+    app_language: AppLanguage,
+) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    container(
-        text(format!("IP: {ip}"))
-            .size(12)
-            .style(move |theme: &Theme| {
-                if selected {
-                    theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
-                } else {
-                    theme::text_muted(theme)
-                }
-            }),
-    )
+    let label = if is_local {
+        format!("IP: {ip} · {}", localized_local_label(app_language))
+    } else {
+        format!("IP: {ip}")
+    };
+
+    container(text(label).size(12).style(move |theme: &Theme| {
+        if selected {
+            theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
+        } else if is_local {
+            theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
+        } else {
+            theme::text_muted(theme)
+        }
+    }))
     .padding([4.0, 10.0])
     .style(move |theme: &Theme| {
         let palette = colors::palette(theme);
@@ -155,6 +188,11 @@ where
                 colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.24 } else { 0.16 }),
                 colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.46 } else { 0.30 }),
             )
+        } else if is_local {
+            (
+                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.16 } else { 0.10 }),
+                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.34 } else { 0.22 }),
+            )
         } else {
             (palette.input, palette.border)
         };
@@ -163,6 +201,42 @@ where
             .background(background)
             .border(iced::Border {
                 color: border_color,
+                width: 1.0,
+                radius: border::radius(999),
+            })
+    })
+    .into()
+}
+
+fn local_badge<'a, Message>(is_local: bool, app_language: AppLanguage) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    if !is_local {
+        return Space::new()
+            .width(Length::Shrink)
+            .height(Length::Shrink)
+            .into();
+    }
+
+    container(
+        text(localized_local_label(app_language))
+            .size(11)
+            .font(fonts::semibold())
+            .style(|_| theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))),
+    )
+    .padding([3.0, 8.0])
+    .style(|theme: &Theme| {
+        let is_dark = colors::palette(theme).card == colors::DARK.card;
+        container::Style::default()
+            .background(colors::rgba(
+                0x3B,
+                0x82,
+                0xF6,
+                if is_dark { 0.16 } else { 0.10 },
+            ))
+            .border(iced::Border {
+                color: colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.34 } else { 0.22 }),
                 width: 1.0,
                 radius: border::radius(999),
             })
@@ -343,8 +417,12 @@ fn empty_state_icon<'a, Message: 'a>(
         .into()
 }
 
-fn device_icon<'a, Message: 'a>(device_type: DeviceType, selected: bool) -> Element<'a, Message> {
-    let tone = if selected {
+fn device_icon<'a, Message: 'a>(
+    device_type: DeviceType,
+    selected: bool,
+    is_local: bool,
+) -> Element<'a, Message> {
+    let tone = if selected || is_local {
         iced::Color::WHITE
     } else {
         colors::rgb(0x6B, 0x72, 0x80)
@@ -364,6 +442,8 @@ fn device_icon<'a, Message: 'a>(device_type: DeviceType, selected: bool) -> Elem
         let palette = colors::palette(theme);
         let (background, border_color) = if selected {
             (palette.primary, palette.primary)
+        } else if is_local {
+            (colors::rgb(0x3B, 0x82, 0xF6), colors::rgb(0x3B, 0x82, 0xF6))
         } else {
             (palette.input, palette.border)
         };
@@ -548,11 +628,18 @@ fn empty_results_title(app_language: AppLanguage) -> &'static str {
 fn empty_results_description(app_language: AppLanguage) -> String {
     match app_language {
         AppLanguage::Chinese => {
-            String::from("当前网段没有发现开放 SSH 端口的设备，可以切换网卡或稍后重新扫描。")
+            String::from("当前网段没有发现在线设备，可以切换网卡或稍后重新扫描。")
         }
         AppLanguage::English => String::from(
-            "No devices with an open SSH port were found on this subnet. Try another interface or scan again later.",
+            "No online devices were found on this subnet. Try another interface or scan again later.",
         ),
+    }
+}
+
+fn localized_local_label(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "本机",
+        AppLanguage::English => "This Device",
     }
 }
 

@@ -411,11 +411,8 @@ pub(super) fn rebuild_visible_devices_from_online(app: &mut ShellApp) {
 }
 
 pub(super) fn preferred_scan_result_filter(app: &ShellApp) -> ScanResultFilter {
-    if has_ssh_intent(app) {
-        ScanResultFilter::SshReady
-    } else {
-        ScanResultFilter::AllOnline
-    }
+    let _ = app;
+    ScanResultFilter::AllOnline
 }
 
 pub(super) fn ssh_ready_devices(app: &ShellApp) -> Vec<Device> {
@@ -493,10 +490,6 @@ pub(super) fn update_device_status(app: &mut ShellApp, ip: &str, status: DeviceS
         layered.device.status = status;
     }
     rebuild_visible_devices_from_online(app);
-}
-
-fn has_ssh_intent(app: &ShellApp) -> bool {
-    !matches!(app.verify_credential_input(), VerifyCredentialInput::Empty)
 }
 
 fn ssh_port_status_for_ip(app: &ShellApp, ip: &str) -> Option<SshPortProbeStatus> {

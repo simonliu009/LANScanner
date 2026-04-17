@@ -273,10 +273,10 @@ fn detail_empty_results_title(app_language: AppLanguage) -> &'static str {
 fn detail_empty_results_description(app_language: AppLanguage) -> String {
     match app_language {
         AppLanguage::Chinese => {
-            String::from("这个网段里暂时没有开放 SSH 端口的主机，可以更换网卡后重新扫描。")
+            String::from("这个网段里暂时没有发现在线设备，可以更换网卡后重新扫描。")
         }
         AppLanguage::English => String::from(
-            "No hosts with an open SSH port were found on this subnet. Switch networks and try again.",
+            "No online devices were found on this subnet. Switch networks and try again.",
         ),
     }
 }

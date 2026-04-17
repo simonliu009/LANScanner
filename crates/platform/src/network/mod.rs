@@ -4,6 +4,7 @@ use std::future::Future;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::sync::{Arc, Once};
+use std::time::Duration;
 
 use ssh_core::network::{self, InterfaceType, NetworkDetector, NetworkInterface};
 use ssh_core::scanner::NeighborEvidence;
@@ -61,7 +62,9 @@ pub struct NeighborCandidate {
 const NEIGHBOR_CANDIDATE_CACHE_PREFIX: &str = "sshscanner-neighbor-candidates";
 const NEIGHBOR_PRIMING_MAX_TARGETS: usize = 256;
 const NEIGHBOR_PRIMING_UDP_PORT: u16 = 33434;
-const NEIGHBOR_PRIMING_TIMEOUT_MS: u64 = 800;
+const NEIGHBOR_PRIMING_TIMEOUT_MS: u64 = 2500;
+const NEIGHBOR_REFRESH_ATTEMPTS: usize = 4;
+const NEIGHBOR_REFRESH_INTERVAL_MS: u64 = 250;
 
 pub fn ensure_registered() {
     static INIT: Once = Once::new();
@@ -109,14 +112,45 @@ pub async fn discover_online_neighbor_candidates(
     };
 
     let rows = collect_system_neighbor_rows().await;
-    let candidates = build_neighbor_candidates(rows, local_ip_addr, subnet_cidr);
+    let mut candidates = build_neighbor_candidates(rows, local_ip_addr, subnet_cidr);
     attempt_neighbor_priming(local_ip_addr, subnet_cidr).await;
-    let candidates = refresh_neighbor_candidates_after_priming(
-        candidates,
-        collect_system_neighbor_rows().await,
-        local_ip_addr,
-        subnet_cidr,
-    );
+    for attempt in 0..NEIGHBOR_REFRESH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(NEIGHBOR_REFRESH_INTERVAL_MS)).await;
+        }
+        candidates = refresh_neighbor_candidates_after_priming(
+            candidates,
+            collect_system_neighbor_rows().await,
+            local_ip_addr,
+            subnet_cidr,
+        );
+    }
+
+    let mut synthetic_candidates =
+        active_scan_fallback_candidates(local_ip_addr, subnet_cidr).await;
+    if let Some(gateway_ip) = discover_default_gateway_ip().await
+        && gateway_ip != local_ip_addr
+        && subnet_cidr.contains_host(gateway_ip)
+    {
+        synthetic_candidates.push(NeighborCandidate {
+            ip: gateway_ip.to_string(),
+            evidence: NeighborEvidence::default(),
+        });
+    }
+    synthetic_candidates.push(NeighborCandidate {
+        ip: local_ip_addr.to_string(),
+        evidence: NeighborEvidence::default(),
+    });
+    candidates.extend(synthetic_candidates);
+
+    let (ordered_ips, mut evidence_by_ip) = split_neighbor_candidates(candidates);
+    let candidates = ordered_ips
+        .into_iter()
+        .map(|ip| NeighborCandidate {
+            evidence: evidence_by_ip.remove(ip.as_str()).unwrap_or_default(),
+            ip,
+        })
+        .collect::<Vec<_>>();
     let _ = write_neighbor_candidate_cache(local_ip, subnet, &candidates);
     candidates
 }
@@ -1155,9 +1189,23 @@ fn compare_neighbor_candidate_ip(left: &str, right: &str) -> Ordering {
     }
 }
 
+async fn active_scan_fallback_candidates(
+    local_ip: Ipv4Addr,
+    subnet: Ipv4Subnet,
+) -> Vec<NeighborCandidate> {
+    let active_hosts = scan_active_hosts(local_ip, subnet).await;
+    active_hosts
+        .into_iter()
+        .map(|ip| NeighborCandidate {
+            ip: ip.to_string(),
+            evidence: NeighborEvidence::default(),
+        })
+        .collect()
+}
+
 fn build_neighbor_candidates(
     rows: Vec<NeighborEvidenceRow>,
-    local_ip: Ipv4Addr,
+    _local_ip: Ipv4Addr,
     subnet: Ipv4Subnet,
 ) -> Vec<NeighborCandidate> {
     let mut evidence_by_ip: HashMap<Ipv4Addr, NeighborEvidence> = HashMap::new();
@@ -1166,7 +1214,7 @@ fn build_neighbor_candidates(
         let Some(ip) = parse_neighbor_candidate_ip(&row.ip) else {
             continue;
         };
-        if ip == local_ip || !subnet.contains_host(ip) {
+        if !subnet.contains_host(ip) {
             continue;
         }
 
@@ -1185,6 +1233,136 @@ fn build_neighbor_candidates(
             evidence,
         })
         .collect()
+}
+
+const ACTIVE_DISCOVERY_PORTS: &[u16] = &[22, 80, 443, 445, 139, 53, 548, 62078];
+const ACTIVE_DISCOVERY_TIMEOUT_MS: u64 = 250;
+const ACTIVE_DISCOVERY_CONCURRENCY: usize = 128;
+const ACTIVE_DISCOVERY_MAX_HOSTS: usize = 1024;
+
+async fn scan_active_hosts(local_ip: Ipv4Addr, subnet: Ipv4Subnet) -> Vec<Ipv4Addr> {
+    let Some((start, end)) = subnet.host_range() else {
+        return Vec::new();
+    };
+
+    let local_raw = u32::from(local_ip);
+    let host_count = usize::try_from(end.saturating_sub(start)).unwrap_or(usize::MAX) + 1;
+    let limit = host_count.min(ACTIVE_DISCOVERY_MAX_HOSTS);
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let targets = build_neighbor_priming_targets(local_ip, subnet, limit);
+    if targets.is_empty() {
+        return Vec::new();
+    }
+
+    let mut join_set = tokio::task::JoinSet::new();
+    let mut active_hosts = Vec::new();
+
+    for target in targets {
+        if u32::from(target) == local_raw {
+            continue;
+        }
+
+        join_set.spawn(async move { probe_host_liveness(target).await.then_some(target) });
+
+        if join_set.len() >= ACTIVE_DISCOVERY_CONCURRENCY
+            && let Some(result) = join_set.join_next().await
+            && let Ok(Some(ip)) = result
+        {
+            active_hosts.push(ip);
+        }
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        if let Ok(Some(ip)) = result {
+            active_hosts.push(ip);
+        }
+    }
+
+    active_hosts.sort_unstable();
+    active_hosts.dedup();
+    active_hosts
+}
+
+async fn probe_host_liveness(target: Ipv4Addr) -> bool {
+    for port in ACTIVE_DISCOVERY_PORTS {
+        if probe_host_port(target, *port).await {
+            return true;
+        }
+    }
+
+    false
+}
+
+async fn probe_host_port(target: Ipv4Addr, port: u16) -> bool {
+    let connect = async {
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.connect((target, port).into()).await
+    };
+
+    match tokio::time::timeout(Duration::from_millis(ACTIVE_DISCOVERY_TIMEOUT_MS), connect).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(error)) => matches!(
+            error.kind(),
+            std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::AddrNotAvailable
+        ),
+        Err(_) => false,
+    }
+}
+
+async fn discover_default_gateway_ip() -> Option<Ipv4Addr> {
+    #[cfg(target_os = "windows")]
+    {
+        return None;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("route")
+            .args(["-n", "get", "default"])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if let Some(raw) = trimmed.strip_prefix("gateway:") {
+                return raw.trim().parse::<Ipv4Addr>().ok();
+            }
+        }
+        return None;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let output = Command::new("ip")
+            .args(["route", "show", "default"])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let mut parts = line.split_whitespace();
+            while let Some(part) = parts.next() {
+                if part == "via" {
+                    return parts.next()?.parse::<Ipv4Addr>().ok();
+                }
+            }
+        }
+        None
+    }
 }
 
 fn refresh_neighbor_candidates_after_priming(
@@ -1658,12 +1836,19 @@ mod tests {
             .map(|candidate| candidate.ip.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ordered_ips, vec!["192.168.31.4", "192.168.31.12"]);
+        assert_eq!(
+            ordered_ips,
+            vec!["192.168.31.4", "192.168.31.8", "192.168.31.12"]
+        );
         assert_eq!(
             candidates[0].evidence.mac_address.as_deref(),
             Some("B8:27:EB:11:22:33")
         );
         assert_eq!(candidates[0].evidence.hostname.as_deref(), Some("pi.local"));
+        assert_eq!(
+            candidates[1].evidence.mac_address.as_deref(),
+            Some("00:04:4B:11:22:33")
+        );
     }
 
     #[test]
