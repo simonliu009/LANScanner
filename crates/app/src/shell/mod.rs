@@ -227,6 +227,12 @@ pub(crate) mod update {
             super::credential_impl::handle_set_password(app, password)
         }
 
+        pub(in super::super) fn handle_toggle_credential_card_collapse(
+            app: &mut super::super::ShellApp,
+        ) -> iced::Task<crate::message::Message> {
+            super::credential_impl::handle_toggle_credential_card_collapse(app)
+        }
+
         pub(in super::super) fn handle_toggle_vnc(
             app: &mut super::super::ShellApp,
         ) -> iced::Task<crate::message::Message> {
@@ -683,6 +689,9 @@ impl ShellApp {
             Message::SelectUser(username) => update::credential::handle_select_user(self, username),
             Message::SetPassword(password) => {
                 update::credential::handle_set_password(self, password)
+            }
+            Message::ToggleCredentialCardCollapse => {
+                update::credential::handle_toggle_credential_card_collapse(self)
             }
             Message::ShowAllOnlineResults => {
                 if self.scan_result_filter != ScanResultFilter::AllOnline {

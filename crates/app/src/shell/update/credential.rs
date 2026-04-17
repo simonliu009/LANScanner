@@ -76,6 +76,19 @@ pub(super) fn handle_set_password(app: &mut ShellApp, password: String) -> Task<
     app.handle_ssh_intent_updated()
 }
 
+pub(super) fn handle_toggle_credential_card_collapse(app: &mut ShellApp) -> Task<Message> {
+    if app.is_connecting {
+        return Task::none();
+    }
+
+    app.credential_card_collapsed = !app.credential_card_collapsed;
+    if app.credential_card_collapsed {
+        app.user_dropdown_open = false;
+    }
+
+    Task::none()
+}
+
 pub(super) fn handle_toggle_vnc(app: &mut ShellApp) -> Task<Message> {
     if !app.is_verifying && !app.is_connecting {
         app.vnc_enabled = !app.vnc_enabled;

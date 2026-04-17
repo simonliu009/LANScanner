@@ -107,7 +107,7 @@ where
 
     let controls = column![
         title_row,
-        column![dropdown, scan_button].spacing(CONTROL_SPACING as f32)
+        column![scan_button, dropdown].spacing(CONTROL_SPACING as f32)
     ]
     .spacing(TITLE_TO_DROPDOWN_SPACING);
 

@@ -95,7 +95,7 @@ pub async fn collect_neighbor_evidence(
             .or_insert(row.evidence);
     }
 
-    evidence_by_ip
+    enrich_evidence_by_ip(evidence_by_ip).await
 }
 
 pub async fn discover_online_neighbor_candidates(
@@ -144,6 +144,7 @@ pub async fn discover_online_neighbor_candidates(
     candidates.extend(synthetic_candidates);
 
     let (ordered_ips, mut evidence_by_ip) = split_neighbor_candidates(candidates);
+    evidence_by_ip = enrich_evidence_by_ip(evidence_by_ip).await;
     let candidates = ordered_ips
         .into_iter()
         .map(|ip| NeighborCandidate {
@@ -1112,6 +1113,182 @@ fn merge_neighbor_evidence(current: &mut NeighborEvidence, incoming: NeighborEvi
     }
     if current.mdns_name.is_none() {
         current.mdns_name = incoming.mdns_name;
+    }
+    if current.dns_name.is_none() {
+        current.dns_name = incoming.dns_name;
+    }
+    if current.smb_name.is_none() {
+        current.smb_name = incoming.smb_name;
+    }
+    if current.smb_domain.is_none() {
+        current.smb_domain = incoming.smb_domain;
+    }
+}
+
+async fn enrich_evidence_by_ip(
+    evidence_by_ip: HashMap<String, NeighborEvidence>,
+) -> HashMap<String, NeighborEvidence> {
+    if evidence_by_ip.is_empty() {
+        return evidence_by_ip;
+    }
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for (ip, evidence) in evidence_by_ip {
+        tasks.spawn(async move {
+            let mut enriched = evidence;
+            let (dns_name, smb_info) = tokio::join!(resolve_dns_name(&ip), resolve_smb_info(&ip));
+            if enriched.dns_name.is_none() {
+                enriched.dns_name = dns_name;
+            }
+            if enriched.smb_name.is_none() {
+                enriched.smb_name = smb_info.as_ref().and_then(|info| info.name.clone());
+            }
+            if enriched.smb_domain.is_none() {
+                enriched.smb_domain = smb_info.and_then(|info| info.domain);
+            }
+            (ip, enriched)
+        });
+    }
+
+    let mut enriched = HashMap::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok((ip, evidence)) = result {
+            enriched.insert(ip, evidence);
+        }
+    }
+    enriched
+}
+
+#[derive(Debug, Clone)]
+struct SmbInfo {
+    name: Option<String>,
+    domain: Option<String>,
+}
+
+async fn resolve_dns_name(ip: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let attempts = [
+            ("dscacheutil", vec!["-q", "host", "-a", "ip_address", ip]),
+            ("host", vec![ip]),
+        ];
+        for (program, args) in attempts {
+            let Ok(output) = Command::new(program).args(args).output().await else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            if let Some(name) = parse_dns_command_output(&String::from_utf8_lossy(&output.stdout)) {
+                return Some(name);
+            }
+        }
+        return None;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let attempts = [("getent", vec!["hosts", ip]), ("host", vec![ip])];
+        for (program, args) in attempts {
+            let Ok(output) = Command::new(program).args(args).output().await else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            if let Some(name) = parse_dns_command_output(&String::from_utf8_lossy(&output.stdout)) {
+                return Some(name);
+            }
+        }
+        return None;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = ip;
+        None
+    }
+}
+
+fn parse_dns_command_output(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix("name:") {
+            return Some(name.trim().trim_end_matches('.').to_owned());
+        }
+        if let Some(name) = trimmed.strip_prefix("name =") {
+            return Some(name.trim().trim_end_matches('.').to_owned());
+        }
+        let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+        if parts.len() >= 2
+            && parts[0].parse::<Ipv4Addr>().is_ok()
+            && let Some(candidate) = parts.last()
+        {
+            return Some(candidate.trim().trim_end_matches('.').to_owned());
+        }
+    }
+    None
+}
+
+async fn resolve_smb_info(ip: &str) -> Option<SmbInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = ip;
+        return None;
+    }
+
+    let Ok(output) = Command::new("nmblookup").args(["-A", ip]).output().await else {
+        return None;
+    };
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_nmblookup_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_nmblookup_output(stdout: &str) -> Option<SmbInfo> {
+    let mut name = None;
+    let mut domain = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.contains('<') || !trimmed.contains('>') {
+            continue;
+        }
+
+        let entry = trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('"');
+        let label = entry.split('<').next().unwrap_or_default().trim();
+        if label.is_empty() {
+            continue;
+        }
+
+        let suffix = entry
+            .split('<')
+            .nth(1)
+            .and_then(|rest| rest.split('>').next())
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_uppercase();
+        let is_group = trimmed.to_ascii_uppercase().contains("<GROUP>");
+
+        match (suffix.as_str(), is_group) {
+            ("00", false) if name.is_none() => name = Some(label.to_owned()),
+            ("00", true) if domain.is_none() => domain = Some(label.to_owned()),
+            ("20", false) if name.is_none() => name = Some(label.to_owned()),
+            _ => {}
+        }
+    }
+
+    if name.is_none() && domain.is_none() {
+        None
+    } else {
+        Some(SmbInfo { name, domain })
     }
 }
 

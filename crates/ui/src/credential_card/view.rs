@@ -81,6 +81,7 @@ pub struct CredentialCardProps<
     pub app_language: AppLanguage,
     pub dropdown: Element<'a, Message>,
     pub is_dark_theme: bool,
+    pub collapsed: bool,
     pub username: &'a str,
     pub password: &'a str,
     pub vnc_enabled: bool,
@@ -91,6 +92,7 @@ pub struct CredentialCardProps<
     pub has_devices: bool,
     pub spinner_frame: &'static str,
     pub on_manage: Option<Message>,
+    pub on_toggle_collapse: Option<Message>,
     pub on_toggle_vnc: Option<Message>,
     pub on_verify: Option<Message>,
     pub on_username_input: UsernameInput,
@@ -116,6 +118,7 @@ where
         app_language,
         dropdown,
         is_dark_theme,
+        collapsed,
         username,
         password,
         vnc_enabled,
@@ -126,6 +129,7 @@ where
         has_devices,
         spinner_frame,
         on_manage,
+        on_toggle_collapse,
         on_toggle_vnc,
         on_verify,
         on_username_input,
@@ -153,11 +157,24 @@ where
             .spacing(TITLE_SPACING)
             .align_y(Alignment::Center),
             Space::new().width(Length::Fill),
-            manage_button(app_language, on_manage),
+            row![
+                manage_button(app_language, on_manage),
+                collapse_button(app_language, collapsed, on_toggle_collapse),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         ]
         .align_y(Alignment::Center),
     )
     .height(Length::Fixed(HEADER_HEIGHT));
+
+    if collapsed {
+        return container(header)
+            .width(Fill)
+            .padding(CARD_PADDING)
+            .style(theme::styles::card)
+            .into();
+    }
 
     let vnc_fields: Element<'a, Message> = if vnc_enabled {
         column![credential_input(
@@ -286,6 +303,79 @@ where
     .height(Length::Fixed(MANAGE_BUTTON_HEIGHT))
     .padding(0)
     .style(manage_button_style)
+    .on_press_maybe(on_press)
+    .into()
+}
+
+fn collapse_button<'a, Message>(
+    app_language: AppLanguage,
+    collapsed: bool,
+    on_press: Option<Message>,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let glyph = if collapsed {
+        Glyph::ChevronDown
+    } else {
+        Glyph::ChevronUp
+    };
+    let label = match app_language {
+        AppLanguage::Chinese if collapsed => "展开",
+        AppLanguage::Chinese => "收起",
+        AppLanguage::English if collapsed => "Expand",
+        AppLanguage::English => "Collapse",
+    };
+
+    button(
+        row![
+            text(label)
+                .size(11)
+                .style(|theme: &Theme| theme::text_muted(theme)),
+            icons::themed_centered(
+                glyph,
+                MANAGE_BUTTON_ICON_SLOT,
+                MANAGE_BUTTON_ICON_SIZE,
+                muted_text_color,
+            ),
+        ]
+        .spacing(5)
+        .align_y(Alignment::Center),
+    )
+    .padding([4, 8])
+    .style(|theme: &Theme, status| {
+        let palette = colors::palette(theme);
+        let is_dark = palette.card == colors::DARK.card;
+        let background = match status {
+            button::Status::Hovered => {
+                if is_dark {
+                    colors::rgba(0xFF, 0xFF, 0xFF, 0.06)
+                } else {
+                    colors::rgba(0xE5, 0xE7, 0xEB, 0.70)
+                }
+            }
+            button::Status::Pressed => {
+                if is_dark {
+                    colors::rgba(0xFF, 0xFF, 0xFF, 0.10)
+                } else {
+                    colors::rgba(0xE5, 0xE7, 0xEB, 0.90)
+                }
+            }
+            _ => iced::Color::TRANSPARENT,
+        };
+
+        button::Style {
+            snap: false,
+            background: Some(iced::Background::Color(background)),
+            text_color: palette.muted_text,
+            border: iced::Border {
+                color: iced::Color::TRANSPARENT,
+                width: 0.0,
+                radius: border::radius(10),
+            },
+            shadow: iced::Shadow::default(),
+        }
+    })
     .on_press_maybe(on_press)
     .into()
 }

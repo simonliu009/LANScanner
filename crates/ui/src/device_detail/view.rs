@@ -12,6 +12,13 @@ where
     Message: Clone + 'a,
 {
     pub device: &'a Device,
+    pub mac_address: Option<&'a str>,
+    pub hostname: Option<&'a str>,
+    pub vendor_name: Option<&'a str>,
+    pub dns_name: Option<&'a str>,
+    pub mdns_name: Option<&'a str>,
+    pub smb_name: Option<&'a str>,
+    pub smb_domain: Option<&'a str>,
     pub status_text: String,
     pub active_launcher_key: Option<&'static str>,
     pub on_shell: Option<Message>,
@@ -459,6 +466,13 @@ where
 {
     let SelectedDetailState {
         device,
+        mac_address,
+        hostname,
+        vendor_name,
+        dns_name,
+        mdns_name,
+        smb_name,
+        smb_domain,
         status_text: _status_text,
         active_launcher_key,
         on_shell,
@@ -569,6 +583,46 @@ where
         .spacing(12)
         .align_y(Alignment::Center)
         .width(Fill),
+        device_info_section(
+            app_language,
+            [
+                detail_info_item(
+                    detail_info_label_mac(app_language),
+                    mac_address,
+                    Glyph::Ethernet,
+                ),
+                detail_info_item(
+                    detail_info_label_hostname(app_language),
+                    hostname,
+                    Glyph::Desktop,
+                ),
+                detail_info_item(
+                    detail_info_label_vendor(app_language),
+                    vendor_name,
+                    Glyph::Network,
+                ),
+                detail_info_item(
+                    detail_info_label_dns_name(app_language),
+                    dns_name,
+                    Glyph::Network,
+                ),
+                detail_info_item(
+                    detail_info_label_mdns_name(app_language),
+                    mdns_name,
+                    Glyph::Wifi,
+                ),
+                detail_info_item(
+                    detail_info_label_smb_name(app_language),
+                    smb_name,
+                    Glyph::Server,
+                ),
+                detail_info_item(
+                    detail_info_label_smb_domain(app_language),
+                    smb_domain,
+                    Glyph::KeyRound,
+                ),
+            ],
+        ),
         container(Space::new().width(Fill).height(1.0)).style(|theme: &Theme| {
             let palette = colors::palette(theme);
             container::Style::default().background(palette.border)
@@ -587,6 +641,107 @@ where
             left: 20.0,
         })
         .into()
+}
+
+#[derive(Clone, Copy)]
+struct DetailInfoItem<'a> {
+    label: &'static str,
+    value: Option<&'a str>,
+    glyph: Glyph,
+}
+
+fn detail_info_item<'a>(
+    label: &'static str,
+    value: Option<&'a str>,
+    glyph: Glyph,
+) -> DetailInfoItem<'a> {
+    DetailInfoItem {
+        label,
+        value,
+        glyph,
+    }
+}
+
+fn device_info_section<'a, Message: 'a>(
+    app_language: AppLanguage,
+    items: [DetailInfoItem<'a>; 7],
+) -> Element<'a, Message> {
+    let rows = items
+        .into_iter()
+        .filter_map(|item| {
+            item.value
+                .map(|value| device_info_row::<Message>(item.label, value, item.glyph))
+        })
+        .collect::<Vec<_>>();
+
+    if rows.is_empty() {
+        return Space::new()
+            .width(Length::Shrink)
+            .height(Length::Shrink)
+            .into();
+    }
+
+    let mut column = column![
+        text(detail_info_section_title(app_language))
+            .font(fonts::semibold())
+            .size(13)
+            .style(|theme: &Theme| theme::text_primary(theme)),
+    ]
+    .spacing(10)
+    .width(Fill);
+
+    for row in rows {
+        column = column.push(row);
+    }
+
+    container(column)
+        .padding([12.0, 14.0])
+        .style(|theme: &Theme| {
+            let palette = colors::palette(theme);
+            container::Style::default()
+                .background(palette.input)
+                .border(iced::Border {
+                    color: palette.border,
+                    width: 1.0,
+                    radius: border::radius(14),
+                })
+        })
+        .into()
+}
+
+fn device_info_row<'a, Message: 'a>(
+    label: &'static str,
+    value: &'a str,
+    glyph: Glyph,
+) -> Element<'a, Message> {
+    container(
+        row![
+            container(icons::centered(
+                glyph,
+                18.0,
+                12.0,
+                colors::rgb(0x3B, 0x82, 0xF6),
+            ))
+            .width(18)
+            .height(18)
+            .center_x(Length::Fixed(18.0))
+            .center_y(Length::Fixed(18.0)),
+            column![
+                text(label)
+                    .size(11)
+                    .style(|theme: &Theme| theme::text_muted(theme)),
+                text(value)
+                    .size(13)
+                    .style(|theme: &Theme| theme::text_primary(theme)),
+            ]
+            .spacing(3)
+            .width(Fill),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding([2.0, 0.0])
+    .into()
 }
 
 fn device_icon<'a, Message: 'a>(
@@ -657,6 +812,62 @@ fn identity_kind_label(
             AppLanguage::Chinese => "未知设备",
             AppLanguage::English => "Unknown Device",
         },
+    }
+}
+
+fn detail_info_section_title(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "可选信息",
+        AppLanguage::English => "Optional Info",
+    }
+}
+
+fn detail_info_label_mac(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "MAC 地址",
+        AppLanguage::English => "MAC Address",
+    }
+}
+
+fn detail_info_label_hostname(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "主机名",
+        AppLanguage::English => "Hostname",
+    }
+}
+
+fn detail_info_label_vendor(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "厂商",
+        AppLanguage::English => "Vendor",
+    }
+}
+
+fn detail_info_label_dns_name(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "DNS 名称",
+        AppLanguage::English => "DNS Name",
+    }
+}
+
+fn detail_info_label_mdns_name(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "mDNS 名称",
+        AppLanguage::English => "mDNS Name",
+    }
+}
+
+fn detail_info_label_smb_name(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "SMB 名称",
+        AppLanguage::English => "SMB Name",
+    }
+}
+
+fn detail_info_label_smb_domain(app_language: AppLanguage) -> &'static str {
+    match app_language {
+        AppLanguage::Chinese => "SMB 域",
+        AppLanguage::English => "SMB Domain",
     }
 }
 

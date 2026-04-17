@@ -2,7 +2,7 @@ use iced::widget::{Space, button, column, container, row, stack, text};
 use iced::{Alignment, Element, Fill, Length, Theme};
 use ssh_core::credential::Credential;
 use ssh_core::network::{InterfaceType, NetworkInterface};
-use ssh_core::scanner::{Device, DeviceStatus};
+use ssh_core::scanner::{Device, DeviceStatus, vendor_name_from_mac_address};
 use ui::device_detail::SelectedDetailState;
 use ui::theme::icons::{self, Glyph};
 use ui::theme::{self, AppLanguage, ThemeMode};
@@ -110,6 +110,7 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                             app_language: app.app_language,
                             dropdown: credential_dropdown_affordance(app),
                             is_dark_theme: matches!(app.theme_mode, ThemeMode::Dark),
+                            collapsed: app.credential_card_collapsed,
                             username: &app.ssh_username,
                             password: &app.password,
                             vnc_enabled: app.vnc_enabled,
@@ -121,6 +122,7 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                             spinner_frame: app.spinner_frame(),
                             on_manage: (!app.is_verifying && !app.is_connecting)
                                 .then_some(Message::OpenCredModal),
+                            on_toggle_collapse: Some(Message::ToggleCredentialCardCollapse),
                             on_toggle_vnc: (!app.is_verifying && !app.is_connecting)
                                 .then_some(Message::ToggleVnc),
                             on_verify: app.can_start_verify().then_some(Message::StartVerify),
@@ -227,9 +229,30 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                         let status_text = device_detail_status(app, device);
                         let active_launcher_key =
                             app.active_quick_connect_launcher_for_device(device.ip.as_str());
+                        let detail_evidence = app.online_evidence_by_ip.get(device.ip.as_str());
+                        let mac_address =
+                            detail_evidence.and_then(|evidence| evidence.mac_address.as_deref());
+                        let hostname =
+                            detail_evidence.and_then(|evidence| evidence.hostname.as_deref());
+                        let vendor_name = mac_address.and_then(vendor_name_from_mac_address);
+                        let dns_name =
+                            detail_evidence.and_then(|evidence| evidence.dns_name.as_deref());
+                        let mdns_name =
+                            detail_evidence.and_then(|evidence| evidence.mdns_name.as_deref());
+                        let smb_name =
+                            detail_evidence.and_then(|evidence| evidence.smb_name.as_deref());
+                        let smb_domain =
+                            detail_evidence.and_then(|evidence| evidence.smb_domain.as_deref());
 
                         ui::device_detail::DetailState::Selected(SelectedDetailState {
                             device,
+                            mac_address,
+                            hostname,
+                            vendor_name,
+                            dns_name,
+                            mdns_name,
+                            smb_name,
+                            smb_domain,
                             status_text,
                             active_launcher_key,
                             on_shell: Some(Message::ConnectShell(device.ip.clone())),

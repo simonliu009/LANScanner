@@ -89,6 +89,23 @@ pub fn device_from_identity_evidence(ip: String, evidence: Option<&NeighborEvide
     }
 }
 
+pub fn vendor_name_from_mac_address(mac_address: &str) -> Option<&'static str> {
+    let hex = mac_address
+        .chars()
+        .filter(|ch| ch.is_ascii_hexdigit())
+        .collect::<String>();
+    if hex.len() < 6 {
+        return None;
+    }
+
+    let prefix = [
+        u8::from_str_radix(&hex[0..2], 16).ok()?,
+        u8::from_str_radix(&hex[2..4], 16).ok()?,
+        u8::from_str_radix(&hex[4..6], 16).ok()?,
+    ];
+    oui_db::lookup_vendor_name(prefix)
+}
+
 pub fn build_layered_scan_devices(
     online_ips: Vec<String>,
     ssh_open_ips: Vec<String>,

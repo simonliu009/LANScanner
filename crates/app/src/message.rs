@@ -65,6 +65,7 @@ pub enum Message {
     SetUsername(String),
     SelectUser(String),
     SetPassword(String),
+    ToggleCredentialCardCollapse,
     ShowAllOnlineResults,
     ShowSshReadyResults,
     ToggleVnc,

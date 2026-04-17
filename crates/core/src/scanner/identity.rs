@@ -26,6 +26,9 @@ pub struct NeighborEvidence {
     pub mac_address: Option<String>,
     pub hostname: Option<String>,
     pub mdns_name: Option<String>,
+    pub dns_name: Option<String>,
+    pub smb_name: Option<String>,
+    pub smb_domain: Option<String>,
 }
 
 impl NeighborEvidence {
@@ -38,18 +41,38 @@ impl NeighborEvidence {
             mac_address: normalize_optional_label(mac_address),
             hostname: normalize_optional_label(hostname),
             mdns_name: normalize_optional_label(mdns_name),
+            dns_name: None,
+            smb_name: None,
+            smb_domain: None,
         }
+    }
+
+    pub fn with_network_names(
+        mut self,
+        dns_name: Option<String>,
+        smb_name: Option<String>,
+        smb_domain: Option<String>,
+    ) -> Self {
+        self.dns_name = normalize_optional_label(dns_name);
+        self.smb_name = normalize_optional_label(smb_name);
+        self.smb_domain = normalize_optional_label(smb_domain);
+        self
     }
 
     fn auxiliary_label(&self) -> Option<&str> {
         self.mdns_name
             .as_deref()
+            .or(self.dns_name.as_deref())
             .or(self.hostname.as_deref())
             .and_then(trim_label)
     }
 
-    fn label_candidates(&self) -> [Option<&str>; 2] {
-        [self.mdns_name.as_deref(), self.hostname.as_deref()]
+    fn label_candidates(&self) -> [Option<&str>; 3] {
+        [
+            self.mdns_name.as_deref(),
+            self.dns_name.as_deref(),
+            self.hostname.as_deref(),
+        ]
     }
 }
 

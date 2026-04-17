@@ -89,6 +89,7 @@ impl ShellApp {
             ssh_username: selected_username.clone().unwrap_or_default(),
             selected_username,
             password,
+            credential_card_collapsed: false,
             vnc_enabled: false,
             vnc_user: String::new(),
             vnc_password: String::new(),

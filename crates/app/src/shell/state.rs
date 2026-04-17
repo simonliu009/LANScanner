@@ -245,6 +245,7 @@ pub struct ShellApp {
     pub(super) ssh_username: String,
     pub(super) selected_username: Option<String>,
     pub(super) password: String,
+    pub(super) credential_card_collapsed: bool,
     pub(super) vnc_enabled: bool,
     pub(super) vnc_user: String,
     pub(super) vnc_password: String,
