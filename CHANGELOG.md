@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.11] - 2026-04-18
+
+### Fixed
+
+- Kept the scan result table header fixed while vertically scrolling the device rows.
+- Improved MAC enrichment by re-reading neighbor table evidence after active host discovery so reachable devices are less likely to miss MAC addresses.
+- Improved hostname discovery by adding active hostname resolution paths, including mDNS address resolution on Linux and additional hostname sources on Windows.
+- Kept the scan action button at a fixed width and prevented its label from wrapping.
+
 ## [0.2.10] - 2026-04-18
 
 ### Changed

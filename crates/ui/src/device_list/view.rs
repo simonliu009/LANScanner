@@ -234,10 +234,9 @@ where
     .height(Fill);
 
     scrollable(table)
-        .direction(scrollable::Direction::Both {
-            vertical: scrollable::Scrollbar::default(),
-            horizontal: scrollable::Scrollbar::default(),
-        })
+        .direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::default(),
+        ))
         .width(Fill)
         .height(Fill)
         .style(theme::styles::custom_scrollbar)

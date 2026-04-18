@@ -29,7 +29,7 @@ const ACTION_BUTTON_RADIUS: f32 = 12.0;
 const ACTION_BUTTON_LABEL_SIZE: f32 = 14.0;
 const TITLE_LABEL_SIZE: f32 = 15.0;
 pub const TOOLBAR_DROPDOWN_WIDTH: f32 = 250.0;
-pub const TOOLBAR_SCAN_BUTTON_WIDTH: f32 = 132.0;
+pub const TOOLBAR_SCAN_BUTTON_WIDTH: f32 = 148.0;
 pub const TOOLBAR_CONTROL_HEIGHT: f32 = 38.0;
 pub const TOOLBAR_REFRESH_BUTTON_EDGE: f32 = 28.0;
 pub const TOOLBAR_SPACING: f32 = 8.0;
@@ -314,6 +314,7 @@ fn scan_button_content<'a, Message: 'a>(
             text(scan_button_loading_label(app_language))
                 .font(fonts::semibold())
                 .size(ACTION_BUTTON_LABEL_SIZE)
+                .wrapping(iced::widget::text::Wrapping::None)
                 .style(|theme: &Theme| theme::solid_text(scan_button_loading_tone(theme))),
         ]
         .spacing(8)
@@ -323,12 +324,14 @@ fn scan_button_content<'a, Message: 'a>(
         text(scan_button_ready_label(app_language))
             .font(fonts::semibold())
             .size(ACTION_BUTTON_LABEL_SIZE)
+            .wrapping(iced::widget::text::Wrapping::None)
             .style(|_| theme::solid_text(iced::Color::WHITE))
             .into()
     } else {
         text(scan_button_placeholder_label(app_language))
             .font(fonts::semibold())
             .size(ACTION_BUTTON_LABEL_SIZE)
+            .wrapping(iced::widget::text::Wrapping::None)
             .style(|_| theme::solid_text(iced::Color::WHITE))
             .into()
     };

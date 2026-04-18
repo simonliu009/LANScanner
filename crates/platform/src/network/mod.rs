@@ -142,6 +142,12 @@ pub async fn discover_online_neighbor_candidates(
         evidence: NeighborEvidence::default(),
     });
     candidates.extend(synthetic_candidates);
+    candidates = refresh_neighbor_candidates_after_priming(
+        candidates,
+        collect_system_neighbor_rows().await,
+        local_ip_addr,
+        subnet_cidr,
+    );
 
     let (ordered_ips, mut evidence_by_ip) = split_neighbor_candidates(candidates);
     evidence_by_ip = enrich_evidence_by_ip(evidence_by_ip).await;
@@ -1136,7 +1142,21 @@ async fn enrich_evidence_by_ip(
     for (ip, evidence) in evidence_by_ip {
         tasks.spawn(async move {
             let mut enriched = evidence;
-            let (dns_name, smb_info) = tokio::join!(resolve_dns_name(&ip), resolve_smb_info(&ip));
+            let (hostname, dns_name, smb_info) = tokio::join!(
+                resolve_hostname(&ip),
+                resolve_dns_name(&ip),
+                resolve_smb_info(&ip)
+            );
+            if enriched.hostname.is_none() {
+                enriched.hostname = hostname;
+            }
+            if enriched.mdns_name.is_none() {
+                enriched.mdns_name = enriched
+                    .hostname
+                    .as_deref()
+                    .filter(|name| name.ends_with(".local"))
+                    .map(str::to_owned);
+            }
             if enriched.dns_name.is_none() {
                 enriched.dns_name = dns_name;
             }
@@ -1163,6 +1183,68 @@ async fn enrich_evidence_by_ip(
 struct SmbInfo {
     name: Option<String>,
     domain: Option<String>,
+}
+
+async fn resolve_hostname(ip: &str) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("ping");
+        command.args(["-a", "-n", "1", "-w", "250", ip]);
+        process::hide_console_window_tokio(&mut command);
+        let output = command.output().await.ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        return parse_windows_ping_hostname_output(&String::from_utf8_lossy(&output.stdout));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let attempts = [
+            ("dns-sd", vec!["-Q", ip]),
+            ("dscacheutil", vec!["-q", "host", "-a", "ip_address", ip]),
+        ];
+
+        for (program, args) in attempts {
+            let Ok(output) = Command::new(program).args(args).output().await else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            if let Some(name) =
+                parse_hostname_command_output(&String::from_utf8_lossy(&output.stdout))
+            {
+                return Some(name);
+            }
+        }
+
+        None
+    }
+
+    #[cfg(all(unix, not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let attempts = [
+            ("avahi-resolve-address", vec!["-4", ip]),
+            ("getent", vec!["hosts", ip]),
+        ];
+
+        for (program, args) in attempts {
+            let Ok(output) = Command::new(program).args(args).output().await else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            if let Some(name) =
+                parse_hostname_command_output(&String::from_utf8_lossy(&output.stdout))
+            {
+                return Some(name);
+            }
+        }
+
+        None
+    }
 }
 
 async fn resolve_dns_name(ip: &str) -> Option<String> {
@@ -1205,8 +1287,12 @@ async fn resolve_dns_name(ip: &str) -> Option<String> {
 
     #[cfg(target_os = "windows")]
     {
-        let _ = ip;
-        None
+        let script = format!(
+            "$r = Resolve-DnsName -Name '{ip}' -Type PTR -QuickTimeout -ErrorAction SilentlyContinue; \
+             if ($r) {{ $r | ForEach-Object {{ \"name: $($_.NameHost)\" }} }}"
+        );
+        let stdout = run_windows_powershell(&script).await?;
+        parse_dns_command_output(&stdout)
     }
 }
 
@@ -1230,11 +1316,37 @@ fn parse_dns_command_output(stdout: &str) -> Option<String> {
     None
 }
 
+fn parse_hostname_command_output(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(name) = trimmed.strip_prefix("name:") {
+            return Some(name.trim().trim_end_matches('.').to_owned());
+        }
+
+        let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+        if parts.len() >= 2 && parts[0].parse::<Ipv4Addr>().is_ok() {
+            return Some(parts[1].trim().trim_end_matches('.').to_owned());
+        }
+    }
+
+    None
+}
+
 async fn resolve_smb_info(ip: &str) -> Option<SmbInfo> {
     #[cfg(target_os = "windows")]
     {
-        let _ = ip;
-        return None;
+        let mut command = Command::new("nbtstat");
+        command.args(["-A", ip]);
+        process::hide_console_window_tokio(&mut command);
+        let output = command.output().await.ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        return parse_windows_nbtstat_output(&String::from_utf8_lossy(&output.stdout));
     }
 
     let Ok(output) = Command::new("nmblookup").args(["-A", ip]).output().await else {
@@ -1245,6 +1357,59 @@ async fn resolve_smb_info(ip: &str) -> Option<SmbInfo> {
     }
 
     parse_nmblookup_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "windows")]
+fn parse_windows_ping_hostname_output(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if !lower.starts_with("pinging ") {
+            continue;
+        }
+
+        let remainder = trimmed.get(8..)?.trim();
+        let host = remainder.split('[').next()?.trim();
+        if host.is_empty() || host.eq_ignore_ascii_case("ping") {
+            continue;
+        }
+        if host.parse::<Ipv4Addr>().is_ok() {
+            continue;
+        }
+        return Some(host.trim_end_matches('.').to_owned());
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn parse_windows_nbtstat_output(stdout: &str) -> Option<SmbInfo> {
+    let mut name = None;
+    let mut domain = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.contains('<') || !trimmed.contains('>') {
+            continue;
+        }
+
+        let entry = trimmed.split('<').next().unwrap_or_default().trim();
+        let suffix = trimmed
+            .split('<')
+            .nth(1)
+            .and_then(|tail| tail.split('>').next())
+            .map(str::trim)
+            .unwrap_or_default();
+        let upper = trimmed.to_ascii_uppercase();
+
+        if suffix == "00" && upper.contains("UNIQUE") && name.is_none() {
+            name = Some(entry.to_owned());
+        } else if suffix == "00" && upper.contains("GROUP") && domain.is_none() {
+            domain = Some(entry.to_owned());
+        }
+    }
+
+    (name.is_some() || domain.is_some()).then_some(SmbInfo { name, domain })
 }
 
 fn parse_nmblookup_output(stdout: &str) -> Option<SmbInfo> {
