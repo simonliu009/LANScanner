@@ -7,7 +7,7 @@ use crate::message::Message;
 use super::super::{Notice, NoticeTone};
 
 pub(super) const RESULT_HEADER_STATUS_SLOT_HEIGHT: f32 = 28.0;
-pub(super) const RESULT_HEADER_FILTER_SLOT_HEIGHT: f32 = 68.0;
+pub(super) const RESULT_HEADER_FILTER_SLOT_HEIGHT: f32 = 34.0;
 
 pub(super) fn result_header_status<'a>(
     notice: Option<&'a Notice>,

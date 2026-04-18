@@ -4,7 +4,7 @@ use iced::Task;
 use ssh_core::credential::store::{self, AppConfig};
 use ssh_core::credential::{self, Credential};
 use ssh_core::ssh::key_mgmt;
-use ui::device_list::ResultColumnVisibility;
+use ui::device_list::{ResultColumnVisibility, TableColumnWidths};
 use ui::theme::{AppLanguage, ThemeMode};
 
 use crate::message::Message;
@@ -67,6 +67,8 @@ impl ShellApp {
             devices: Vec::new(),
             scan_result_filter: ScanResultFilter::AllOnline,
             result_column_visibility: ResultColumnVisibility::default(),
+            result_column_widths: TableColumnWidths::default(),
+            active_column_resize: None,
             selected_device_id: None,
             has_scanned: false,
             scan_progress: None,

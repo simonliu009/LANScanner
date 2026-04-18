@@ -410,11 +410,15 @@ fn visual_check_device_list(app: &ShellApp) -> Element<'_, Message> {
         &app.devices,
         &app.online_evidence_by_ip,
         app.result_column_visibility,
+        app.result_column_widths,
         app.selected_device_id.as_deref(),
         app.selected_network()
             .map(|network| network.local_ip.as_str()),
         app.app_language,
         Message::SelectDevice,
+        Message::BeginResultColumnResize,
+        Message::UpdateResultColumnResize,
+        Message::FinishResultColumnResize,
     )
 }
 

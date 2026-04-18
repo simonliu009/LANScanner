@@ -711,6 +711,34 @@ impl ShellApp {
                 self.result_column_visibility.set_visible(column, visible);
                 Task::none()
             }
+            Message::BeginResultColumnResize(column) => {
+                self.active_column_resize = Some(state::ActiveColumnResize {
+                    column,
+                    start_cursor_x: None,
+                    initial_width: self.result_column_widths.width(column),
+                });
+                Task::none()
+            }
+            Message::UpdateResultColumnResize(point) => {
+                if let Some(active) = &mut self.active_column_resize {
+                    let start_x = match active.start_cursor_x {
+                        Some(start_x) => start_x,
+                        None => {
+                            active.start_cursor_x = Some(point.x);
+                            point.x
+                        }
+                    };
+
+                    let next_width = active.initial_width + (point.x - start_x);
+                    self.result_column_widths
+                        .set_width(active.column, next_width);
+                }
+                Task::none()
+            }
+            Message::FinishResultColumnResize => {
+                self.active_column_resize = None;
+                Task::none()
+            }
             Message::ToggleVnc => update::credential::handle_toggle_vnc(self),
             Message::SetVncUser(value) => update::credential::handle_set_vnc_user(self, value),
             Message::SetVncPassword(value) => {

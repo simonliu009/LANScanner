@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.12] - 2026-04-18
+
+### Changed
+
+- Reworked the scan results header controls into a single always-visible row with `All Online`, `SSH`, and all optional column checkboxes shown together.
+- Changed the result table from proportional column sizing to fixed per-column widths so enabling extra columns no longer causes existing columns to jump.
+- Added draggable resize handles on the result table headers so operators can adjust column widths directly.
+
 ## [0.2.11] - 2026-04-18
 
 ### Fixed

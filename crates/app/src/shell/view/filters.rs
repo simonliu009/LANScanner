@@ -1,4 +1,4 @@
-use iced::widget::{Space, button, checkbox, column, container, row, text};
+use iced::widget::{Space, button, checkbox, container, row, text};
 use iced::{Alignment, Element, Length, Theme, border};
 use ui::device_list::ResultColumn;
 use ui::theme::{self, AppLanguage, colors};
@@ -6,8 +6,6 @@ use ui::theme::{self, AppLanguage, colors};
 use crate::message::Message;
 
 use super::super::{ScanResultFilter, ShellApp};
-
-const FILTER_BUTTON_CELL_WIDTH: f32 = 128.0;
 
 pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message> {
     if !app.has_scanned {
@@ -18,85 +16,67 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
     }
 
     let controls = row![
-        filter_button_cell(app),
-        result_column_grid(app),
+        scan_result_filter_button(
+            localized(app.app_language, "全部在线", "All Online"),
+            app.scan_result_filter == ScanResultFilter::AllOnline,
+            Message::ShowAllOnlineResults
+        ),
+        scan_result_filter_button(
+            localized(app.app_language, "SSH", "SSH"),
+            app.scan_result_filter == ScanResultFilter::SshReady,
+            Message::ShowSshReadyResults
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::MacAddress,
+            app.result_column_visibility.mac_address,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::Hostname,
+            app.result_column_visibility.hostname,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::Vendor,
+            app.result_column_visibility.vendor,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::DnsName,
+            app.result_column_visibility.dns_name,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::MdnsName,
+            app.result_column_visibility.mdns_name,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::SmbName,
+            app.result_column_visibility.smb_name,
+        ),
+        column_toggle(
+            app.app_language,
+            ResultColumn::SmbDomain,
+            app.result_column_visibility.smb_domain,
+        ),
     ]
-    .spacing(10)
+    .spacing(8)
     .align_y(Alignment::Center);
 
     container(controls)
-    .width(Length::Fill)
-    .padding([3, 4])
-    .style(|theme: &Theme| {
-        let palette = colors::palette(theme);
-        container::Style::default()
-            .background(palette.input)
-            .border(iced::Border {
-                color: palette.border,
-                width: 1.0,
-                radius: border::radius(999),
-            })
-    })
-    .into()
-}
-
-fn filter_button_cell(app: &ShellApp) -> Element<'_, Message> {
-    container(
-        column![
-            scan_result_filter_button(
-                localized(app.app_language, "全部在线", "All Online"),
-                app.scan_result_filter == ScanResultFilter::AllOnline,
-                Message::ShowAllOnlineResults
-            ),
-            scan_result_filter_button(
-                localized(app.app_language, "SSH", "SSH"),
-                app.scan_result_filter == ScanResultFilter::SshReady,
-                Message::ShowSshReadyResults
-            ),
-        ]
-        .spacing(6)
-        .align_x(Alignment::Center),
-    )
-    .width(Length::Fixed(FILTER_BUTTON_CELL_WIDTH))
-    .center_y(Length::Shrink)
-    .into()
-}
-
-fn result_column_grid(app: &ShellApp) -> Element<'_, Message> {
-    let visibility = app.result_column_visibility;
-    let first_row = [
-        (ResultColumn::MacAddress, visibility.mac_address),
-        (ResultColumn::Hostname, visibility.hostname),
-        (ResultColumn::Vendor, visibility.vendor),
-        (ResultColumn::DnsName, visibility.dns_name),
-    ];
-    let second_row = [
-        (ResultColumn::MdnsName, visibility.mdns_name),
-        (ResultColumn::SmbName, visibility.smb_name),
-        (ResultColumn::SmbDomain, visibility.smb_domain),
-    ];
-
-    container(
-        column![
-            checkbox_row(app.app_language, first_row),
-            checkbox_row(app.app_language, second_row),
-        ]
-        .spacing(6)
-        .align_x(Alignment::Start),
-    )
-    .width(Length::Fill)
-    .center_y(Length::Shrink)
-    .into()
-}
-
-fn checkbox_row<const N: usize>(
-    language: AppLanguage,
-    entries: [(ResultColumn, bool); N],
-) -> Element<'static, Message> {
-    entries
-        .into_iter()
-        .fold(row!().spacing(10).align_y(Alignment::Center), |row, entry| {
-            row.push(column_toggle(language, entry.0, entry.1))
+        .width(Length::Fill)
+        .padding([3, 4])
+        .style(|theme: &Theme| {
+            let palette = colors::palette(theme);
+            container::Style::default()
+                .background(palette.input)
+                .border(iced::Border {
+                    color: palette.border,
+                    width: 1.0,
+                    radius: border::radius(999),
+                })
         })
         .into()
 }
@@ -131,11 +111,11 @@ fn column_toggle(
 
 fn result_column_label(language: AppLanguage, column: ResultColumn) -> &'static str {
     match column {
-        ResultColumn::MacAddress => localized(language, "MAC 地址", "MAC Address"),
+        ResultColumn::MacAddress => localized(language, "MAC", "MAC"),
         ResultColumn::Hostname => localized(language, "主机名", "Hostname"),
         ResultColumn::Vendor => localized(language, "厂商", "Vendor"),
-        ResultColumn::DnsName => localized(language, "DNS 名称", "DNS Name"),
-        ResultColumn::MdnsName => localized(language, "mDNS 名称", "mDNS Name"),
+        ResultColumn::DnsName => localized(language, "DNS", "DNS"),
+        ResultColumn::MdnsName => localized(language, "mDNS", "mDNS"),
         ResultColumn::SmbName => localized(language, "SMB 名称", "SMB Name"),
         ResultColumn::SmbDomain => localized(language, "SMB 域", "SMB Domain"),
     }

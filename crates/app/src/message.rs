@@ -6,7 +6,7 @@ use ssh_core::credential::store::ToolKind;
 use ssh_core::docker::Container;
 use ssh_core::network::NetworkInterface;
 use ssh_core::scanner::{DeviceStatus, LayeredScanDevice, NeighborEvidence, TcpProbeReport};
-use ui::device_list::ResultColumn;
+use ui::device_list::{ResultColumn, TableColumn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectNoticeTone {
@@ -70,6 +70,9 @@ pub enum Message {
     ShowAllOnlineResults,
     ShowSshReadyResults,
     SetResultColumnVisible(ResultColumn, bool),
+    BeginResultColumnResize(TableColumn),
+    UpdateResultColumnResize(iced::Point),
+    FinishResultColumnResize,
     ToggleVnc,
     SetVncUser(String),
     SetVncPassword(String),

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Alignment, Element, Fill, Length, Theme, border};
-use ssh_core::scanner::{
-    Device, DeviceStatus, NeighborEvidence, vendor_name_from_mac_address,
-};
+use iced::widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text};
+use iced::{Alignment, Element, Fill, Length, Point, Theme, border, mouse};
+use ssh_core::scanner::{Device, DeviceStatus, NeighborEvidence, vendor_name_from_mac_address};
 
-use crate::theme::{self, AppLanguage, colors, fonts, icons::{self, FrameSpec, Glyph}};
+use crate::theme::{
+    self, AppLanguage, colors, fonts,
+    icons::{self, FrameSpec, Glyph},
+};
 
 const LIST_OUTER_PADDING_X: f32 = 10.0;
 const LIST_OUTER_PADDING_Y: f32 = 6.0;
@@ -14,21 +15,37 @@ const LIST_ITEM_HEIGHT: f32 = 46.0;
 const LIST_ITEM_HORIZONTAL_PADDING: f32 = 8.0;
 const LIST_ITEM_RADIUS: f32 = 9.0;
 const HEADER_HEIGHT: f32 = 28.0;
+const HEADER_CELL_HEIGHT: f32 = 20.0;
 const COLUMN_GAP: f32 = 10.0;
 const TABLE_TEXT_SIZE: f32 = 11.0;
-const TABLE_MIN_WIDTH_BASIC: f32 = 1040.0;
-const TABLE_MIN_WIDTH_EXTENDED: f32 = 2100.0;
-const DEVICE_COL_FILL: u16 = 4;
-const NETWORK_NAME_COL_FILL: u16 = 4;
-const IP_COL_FILL: u16 = 3;
-const MAC_COL_FILL: u16 = 3;
-const HOSTNAME_COL_FILL: u16 = 3;
-const VENDOR_COL_FILL: u16 = 4;
-const DNS_COL_FILL: u16 = 3;
-const MDNS_COL_FILL: u16 = 3;
-const SMB_NAME_COL_FILL: u16 = 3;
-const SMB_DOMAIN_COL_FILL: u16 = 3;
-const STATUS_COL_FILL: u16 = 2;
+const COLUMN_RESIZE_HANDLE_WIDTH: f32 = 12.0;
+const MIN_COLUMN_WIDTH: f32 = 72.0;
+const DEVICE_COL_WIDTH: f32 = 188.0;
+const NETWORK_NAME_COL_WIDTH: f32 = 208.0;
+const IP_COL_WIDTH: f32 = 138.0;
+const MAC_COL_WIDTH: f32 = 152.0;
+const HOSTNAME_COL_WIDTH: f32 = 188.0;
+const VENDOR_COL_WIDTH: f32 = 176.0;
+const DNS_COL_WIDTH: f32 = 196.0;
+const MDNS_COL_WIDTH: f32 = 196.0;
+const SMB_NAME_COL_WIDTH: f32 = 168.0;
+const SMB_DOMAIN_COL_WIDTH: f32 = 168.0;
+const STATUS_COL_WIDTH: f32 = 94.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableColumn {
+    DeviceName,
+    NetworkName,
+    IpAddress,
+    Status,
+    MacAddress,
+    Hostname,
+    Vendor,
+    DnsName,
+    MdnsName,
+    SmbName,
+    SmbDomain,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultColumn {
@@ -102,6 +119,94 @@ impl ResultColumnVisibility {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TableColumnWidths {
+    pub device_name: f32,
+    pub network_name: f32,
+    pub ip_address: f32,
+    pub status: f32,
+    pub mac_address: f32,
+    pub hostname: f32,
+    pub vendor: f32,
+    pub dns_name: f32,
+    pub mdns_name: f32,
+    pub smb_name: f32,
+    pub smb_domain: f32,
+}
+
+impl Default for TableColumnWidths {
+    fn default() -> Self {
+        Self {
+            device_name: DEVICE_COL_WIDTH,
+            network_name: NETWORK_NAME_COL_WIDTH,
+            ip_address: IP_COL_WIDTH,
+            status: STATUS_COL_WIDTH,
+            mac_address: MAC_COL_WIDTH,
+            hostname: HOSTNAME_COL_WIDTH,
+            vendor: VENDOR_COL_WIDTH,
+            dns_name: DNS_COL_WIDTH,
+            mdns_name: MDNS_COL_WIDTH,
+            smb_name: SMB_NAME_COL_WIDTH,
+            smb_domain: SMB_DOMAIN_COL_WIDTH,
+        }
+    }
+}
+
+impl TableColumnWidths {
+    pub fn width(&self, column: TableColumn) -> f32 {
+        match column {
+            TableColumn::DeviceName => self.device_name,
+            TableColumn::NetworkName => self.network_name,
+            TableColumn::IpAddress => self.ip_address,
+            TableColumn::Status => self.status,
+            TableColumn::MacAddress => self.mac_address,
+            TableColumn::Hostname => self.hostname,
+            TableColumn::Vendor => self.vendor,
+            TableColumn::DnsName => self.dns_name,
+            TableColumn::MdnsName => self.mdns_name,
+            TableColumn::SmbName => self.smb_name,
+            TableColumn::SmbDomain => self.smb_domain,
+        }
+    }
+
+    pub fn set_width(&mut self, column: TableColumn, width: f32) {
+        let clamped = width.max(MIN_COLUMN_WIDTH);
+
+        match column {
+            TableColumn::DeviceName => self.device_name = clamped,
+            TableColumn::NetworkName => self.network_name = clamped,
+            TableColumn::IpAddress => self.ip_address = clamped,
+            TableColumn::Status => self.status = clamped,
+            TableColumn::MacAddress => self.mac_address = clamped,
+            TableColumn::Hostname => self.hostname = clamped,
+            TableColumn::Vendor => self.vendor = clamped,
+            TableColumn::DnsName => self.dns_name = clamped,
+            TableColumn::MdnsName => self.mdns_name = clamped,
+            TableColumn::SmbName => self.smb_name = clamped,
+            TableColumn::SmbDomain => self.smb_domain = clamped,
+        }
+    }
+
+    pub fn total_width(&self, visible_columns: ResultColumnVisibility) -> f32 {
+        let column_count = visible_column_count(visible_columns);
+        let content_width = [
+            TableColumn::DeviceName,
+            TableColumn::NetworkName,
+            TableColumn::IpAddress,
+        ]
+        .into_iter()
+        .chain(optional_columns(visible_columns).map(result_column_table_column))
+        .chain([TableColumn::Status])
+        .map(|column| self.width(column))
+        .sum::<f32>();
+
+        let gaps = COLUMN_GAP * (column_count.saturating_sub(1) as f32);
+        let horizontal_padding = (LIST_OUTER_PADDING_X + LIST_ITEM_HORIZONTAL_PADDING) * 2.0;
+
+        content_width + gaps + horizontal_padding
+    }
+}
+
 pub enum PlaceholderState {
     Idle,
     RefreshingNetworks {
@@ -124,10 +229,14 @@ pub fn view<'a, Message>(
     devices: &'a [Device],
     evidence_by_ip: &'a HashMap<String, NeighborEvidence>,
     visible_columns: ResultColumnVisibility,
+    column_widths: TableColumnWidths,
     selected_device_id: Option<&'a str>,
     local_ip: Option<&'a str>,
     app_language: AppLanguage,
     on_select: impl Fn(String) -> Message + Copy + 'a,
+    on_resize_start: impl Fn(TableColumn) -> Message + Copy + 'a,
+    on_resize_move: impl Fn(Point) -> Message + Copy + 'a,
+    on_resize_end: Message,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -136,35 +245,49 @@ where
         return placeholder(PlaceholderState::EmptyResults, app_language);
     }
 
-    let header = device_table_header(app_language, visible_columns);
+    let header = device_table_header(
+        app_language,
+        visible_columns,
+        column_widths,
+        on_resize_start,
+    );
     let mut ordered_devices = devices.iter().collect::<Vec<_>>();
     ordered_devices.sort_by_key(|device| local_ip != Some(device.ip.as_str()));
 
     let items = ordered_devices.into_iter().fold(
-        column!().spacing(2).padding([LIST_OUTER_PADDING_Y, LIST_OUTER_PADDING_X]),
+        column!()
+            .spacing(2)
+            .padding([LIST_OUTER_PADDING_Y, LIST_OUTER_PADDING_X]),
         |column, device| {
             let is_selected = selected_device_id == Some(device.id.as_str());
             let is_local = local_ip == Some(device.ip.as_str());
             let is_emphasized = is_selected || is_local;
             let select_message = on_select(device.id.clone());
             let evidence = evidence_by_ip.get(device.ip.as_str());
-            let mut item_row =
-                row![
-                    device_name_cell(device, evidence, is_emphasized, is_local),
-                    network_name_cell(evidence, is_emphasized),
-                    device_ip_cell(&device.ip, is_emphasized),
-                ]
-                .spacing(COLUMN_GAP)
-                .align_y(Alignment::Center);
+            let mut item_row = row![
+                device_name_cell(device, evidence, is_emphasized, is_local, column_widths),
+                network_name_cell(evidence, is_emphasized, column_widths),
+                device_ip_cell(&device.ip, is_emphasized, column_widths),
+            ]
+            .spacing(COLUMN_GAP)
+            .align_y(Alignment::Center);
 
             for column in optional_columns(visible_columns) {
-                item_row =
-                    item_row.push(result_column_cell(column, evidence, is_emphasized));
+                item_row = item_row.push(result_column_cell(
+                    column,
+                    evidence,
+                    is_emphasized,
+                    column_widths,
+                ));
             }
 
             let item = button(
                 item_row
-                    .push(device_status_cell(device.status, app_language))
+                    .push(device_status_cell(
+                        device.status,
+                        app_language,
+                        column_widths,
+                    ))
                     .height(LIST_ITEM_HEIGHT),
             )
             .width(Fill)
@@ -226,31 +349,38 @@ where
             .style(theme::styles::custom_scrollbar)
     ]
     .spacing(0)
-    .width(Length::Fixed(if visible_columns.has_any_optional_column() {
-        TABLE_MIN_WIDTH_EXTENDED
-    } else {
-        TABLE_MIN_WIDTH_BASIC
-    }))
+    .width(Length::Fixed(column_widths.total_width(visible_columns)))
     .height(Fill);
 
-    scrollable(table)
-        .direction(scrollable::Direction::Horizontal(
-            scrollable::Scrollbar::default(),
-        ))
-        .width(Fill)
-        .height(Fill)
-        .style(theme::styles::custom_scrollbar)
-        .into()
+    scrollable(
+        mouse_area(table)
+            .on_move(on_resize_move)
+            .on_release(on_resize_end),
+    )
+    .direction(scrollable::Direction::Horizontal(
+        scrollable::Scrollbar::default(),
+    ))
+    .width(Fill)
+    .height(Fill)
+    .style(theme::styles::custom_scrollbar)
+    .into()
 }
 
 fn device_table_header<'a, Message>(
     app_language: AppLanguage,
     visible_columns: ResultColumnVisibility,
+    column_widths: TableColumnWidths,
+    on_resize_start: impl Fn(TableColumn) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
-    Message: 'a,
+    Message: Clone + 'a,
 {
-    container(header_row(app_language, visible_columns))
+    container(header_row(
+        app_language,
+        visible_columns,
+        column_widths,
+        on_resize_start,
+    ))
     .padding(iced::Padding {
         top: 6.0,
         right: LIST_OUTER_PADDING_X + LIST_ITEM_HORIZONTAL_PADDING,
@@ -264,17 +394,31 @@ where
 fn header_row<'a, Message>(
     app_language: AppLanguage,
     visible_columns: ResultColumnVisibility,
+    column_widths: TableColumnWidths,
+    on_resize_start: impl Fn(TableColumn) -> Message + Copy + 'a,
 ) -> iced::widget::Row<'a, Message>
 where
-    Message: 'a,
+    Message: Clone + 'a,
 {
     let mut row = row![
-        table_header_cell(localized(app_language, "设备名", "Device Name"), DEVICE_COL_FILL),
+        table_header_cell(
+            localized(app_language, "设备名", "Device Name"),
+            column_widths.width(TableColumn::DeviceName),
+            TableColumn::DeviceName,
+            on_resize_start,
+        ),
         table_header_cell(
             localized(app_language, "网络名称", "Network Name"),
-            NETWORK_NAME_COL_FILL,
+            column_widths.width(TableColumn::NetworkName),
+            TableColumn::NetworkName,
+            on_resize_start,
         ),
-        table_header_cell(localized(app_language, "IP 地址", "IP Address"), IP_COL_FILL),
+        table_header_cell(
+            localized(app_language, "IP 地址", "IP Address"),
+            column_widths.width(TableColumn::IpAddress),
+            TableColumn::IpAddress,
+            on_resize_start,
+        ),
     ]
     .spacing(COLUMN_GAP)
     .align_y(Alignment::Center);
@@ -282,14 +426,18 @@ where
     for column in optional_columns(visible_columns) {
         row = row.push(table_header_cell(
             result_column_label(column, app_language),
-            result_column_fill(column),
+            column_widths.width(result_column_table_column(column)),
+            result_column_table_column(column),
+            on_resize_start,
         ));
     }
 
     row.push(table_header_cell(
-            localized(app_language, "状态", "Status"),
-            STATUS_COL_FILL,
-        ))
+        localized(app_language, "状态", "Status"),
+        column_widths.width(TableColumn::Status),
+        TableColumn::Status,
+        on_resize_start,
+    ))
 }
 
 fn optional_columns(visible_columns: ResultColumnVisibility) -> impl Iterator<Item = ResultColumn> {
@@ -310,6 +458,7 @@ fn result_column_cell<'a, Message>(
     column: ResultColumn,
     evidence: Option<&'a NeighborEvidence>,
     is_selected: bool,
+    column_widths: TableColumnWidths,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -318,32 +467,32 @@ where
         ResultColumn::MacAddress => evidence
             .and_then(|item| item.mac_address.as_deref())
             .unwrap_or("-"),
-        ResultColumn::Hostname => evidence.and_then(|item| item.hostname.as_deref()).unwrap_or("-"),
+        ResultColumn::Hostname => evidence
+            .and_then(|item| item.hostname.as_deref())
+            .unwrap_or("-"),
         ResultColumn::Vendor => evidence
             .and_then(|item| item.mac_address.as_deref())
             .and_then(vendor_name_from_mac_address)
             .unwrap_or("-"),
-        ResultColumn::DnsName => evidence.and_then(|item| item.dns_name.as_deref()).unwrap_or("-"),
-        ResultColumn::MdnsName => evidence.and_then(|item| item.mdns_name.as_deref()).unwrap_or("-"),
-        ResultColumn::SmbName => evidence.and_then(|item| item.smb_name.as_deref()).unwrap_or("-"),
+        ResultColumn::DnsName => evidence
+            .and_then(|item| item.dns_name.as_deref())
+            .unwrap_or("-"),
+        ResultColumn::MdnsName => evidence
+            .and_then(|item| item.mdns_name.as_deref())
+            .unwrap_or("-"),
+        ResultColumn::SmbName => evidence
+            .and_then(|item| item.smb_name.as_deref())
+            .unwrap_or("-"),
         ResultColumn::SmbDomain => evidence
             .and_then(|item| item.smb_domain.as_deref())
             .unwrap_or("-"),
     };
 
-    plain_text_cell(value, result_column_fill(column), is_selected)
-}
-
-fn result_column_fill(column: ResultColumn) -> u16 {
-    match column {
-        ResultColumn::MacAddress => MAC_COL_FILL,
-        ResultColumn::Hostname => HOSTNAME_COL_FILL,
-        ResultColumn::Vendor => VENDOR_COL_FILL,
-        ResultColumn::DnsName => DNS_COL_FILL,
-        ResultColumn::MdnsName => MDNS_COL_FILL,
-        ResultColumn::SmbName => SMB_NAME_COL_FILL,
-        ResultColumn::SmbDomain => SMB_DOMAIN_COL_FILL,
-    }
+    plain_text_cell(
+        value,
+        column_widths.width(result_column_table_column(column)),
+        is_selected,
+    )
 }
 
 fn result_column_label(column: ResultColumn, app_language: AppLanguage) -> &'static str {
@@ -358,19 +507,70 @@ fn result_column_label(column: ResultColumn, app_language: AppLanguage) -> &'sta
     }
 }
 
-fn table_header_cell<'a, Message>(label: &'static str, fill: u16) -> Element<'a, Message>
+fn result_column_table_column(column: ResultColumn) -> TableColumn {
+    match column {
+        ResultColumn::MacAddress => TableColumn::MacAddress,
+        ResultColumn::Hostname => TableColumn::Hostname,
+        ResultColumn::Vendor => TableColumn::Vendor,
+        ResultColumn::DnsName => TableColumn::DnsName,
+        ResultColumn::MdnsName => TableColumn::MdnsName,
+        ResultColumn::SmbName => TableColumn::SmbName,
+        ResultColumn::SmbDomain => TableColumn::SmbDomain,
+    }
+}
+
+fn visible_column_count(visible_columns: ResultColumnVisibility) -> usize {
+    4 + optional_columns(visible_columns).count()
+}
+
+fn table_header_cell<'a, Message>(
+    label: &'static str,
+    width: f32,
+    column: TableColumn,
+    on_resize_start: impl Fn(TableColumn) -> Message + Copy + 'a,
+) -> Element<'a, Message>
 where
-    Message: 'a,
+    Message: Clone + 'a,
 {
-    container(
+    let label_layer = container(
         text(label)
             .font(fonts::monospace())
             .size(TABLE_TEXT_SIZE)
             .style(|theme: &Theme| theme::text_muted(theme)),
     )
-    .width(Length::FillPortion(fill))
-    .center_y(Length::Fixed(HEADER_HEIGHT))
-    .into()
+    .width(Length::Fixed(width))
+    .center_y(Length::Fixed(HEADER_CELL_HEIGHT));
+
+    let handle_layer = row![
+        Space::new().width(Fill).height(Length::Shrink),
+        container(
+            mouse_area(
+                container(
+                    Space::new()
+                        .width(Length::Fixed(1.0))
+                        .height(Length::Fixed(HEADER_CELL_HEIGHT)),
+                )
+                .style(|theme: &Theme| {
+                    let palette = colors::palette(theme);
+                    container::Style::default().background(palette.border)
+                }),
+            )
+            .on_press(on_resize_start(column))
+            .interaction(mouse::Interaction::ResizingHorizontally),
+        )
+        .width(Length::Fixed(COLUMN_RESIZE_HANDLE_WIDTH))
+        .height(Length::Fixed(HEADER_CELL_HEIGHT))
+        .center_x(Length::Fixed(COLUMN_RESIZE_HANDLE_WIDTH))
+        .center_y(Length::Fixed(HEADER_CELL_HEIGHT)),
+    ]
+    .width(Length::Fixed(width))
+    .height(Length::Fixed(HEADER_CELL_HEIGHT))
+    .align_y(Alignment::Center);
+
+    stack![label_layer, handle_layer]
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(HEADER_CELL_HEIGHT))
+        .into()
 }
 
 fn device_name_cell<'a, Message>(
@@ -378,6 +578,7 @@ fn device_name_cell<'a, Message>(
     evidence: Option<&'a NeighborEvidence>,
     is_emphasized: bool,
     is_local: bool,
+    column_widths: TableColumnWidths,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -396,7 +597,7 @@ where
                 }
             }),
     )
-    .width(Length::FillPortion(DEVICE_COL_FILL))
+    .width(Length::Fixed(column_widths.width(TableColumn::DeviceName)))
     .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
 }
@@ -404,13 +605,14 @@ where
 fn network_name_cell<'a, Message>(
     evidence: Option<&'a NeighborEvidence>,
     is_emphasized: bool,
+    column_widths: TableColumnWidths,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
     plain_text_cell(
         network_name_label(evidence).unwrap_or("-"),
-        NETWORK_NAME_COL_FILL,
+        column_widths.width(TableColumn::NetworkName),
         is_emphasized,
     )
 }
@@ -418,6 +620,7 @@ where
 fn device_ip_cell<'a, Message>(
     ip: &'a str,
     is_emphasized: bool,
+    column_widths: TableColumnWidths,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -434,14 +637,14 @@ where
                 }
             }),
     )
-    .width(Length::FillPortion(IP_COL_FILL))
+    .width(Length::Fixed(column_widths.width(TableColumn::IpAddress)))
     .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
 }
 
 fn plain_text_cell<'a, Message>(
     value: &'a str,
-    fill: u16,
+    width: f32,
     is_selected: bool,
 ) -> Element<'a, Message>
 where
@@ -459,7 +662,7 @@ where
                 }
             }),
     )
-    .width(Length::FillPortion(fill))
+    .width(Length::Fixed(width))
     .clip(true)
     .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
@@ -468,6 +671,7 @@ where
 fn device_status_cell<'a, Message>(
     status: DeviceStatus,
     app_language: AppLanguage,
+    column_widths: TableColumnWidths,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -484,10 +688,10 @@ where
                 DeviceStatus::Untested => theme::text_muted(theme),
             }),
     )
-        .width(Length::FillPortion(STATUS_COL_FILL))
-        .align_x(iced::alignment::Horizontal::Left)
-        .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
-        .into()
+    .width(Length::Fixed(column_widths.width(TableColumn::Status)))
+    .align_x(iced::alignment::Horizontal::Left)
+    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
+    .into()
 }
 
 fn device_name_label(

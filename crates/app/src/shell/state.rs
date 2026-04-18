@@ -8,7 +8,7 @@ use ssh_core::docker::Container;
 use ssh_core::network::NetworkInterface;
 use ssh_core::scanner::{Device, LayeredScanDevice, NeighborEvidence};
 use tokio_util::sync::CancellationToken;
-use ui::device_list::ResultColumnVisibility;
+use ui::device_list::{ResultColumnVisibility, TableColumn, TableColumnWidths};
 use ui::theme::{AppLanguage, ThemeMode};
 
 use crate::visual_check::VisualScene;
@@ -203,6 +203,13 @@ pub(super) enum VisualCheckStage {
     Capturing,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ActiveColumnResize {
+    pub(super) column: TableColumn,
+    pub(super) start_cursor_x: Option<f32>,
+    pub(super) initial_width: f32,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct VisualCheckRuntime {
     pub(super) output_dir: PathBuf,
@@ -223,6 +230,8 @@ pub struct ShellApp {
     pub(super) devices: Vec<Device>,
     pub(super) scan_result_filter: ScanResultFilter,
     pub(super) result_column_visibility: ResultColumnVisibility,
+    pub(super) result_column_widths: TableColumnWidths,
+    pub(super) active_column_resize: Option<ActiveColumnResize>,
     pub(super) selected_device_id: Option<String>,
     pub(super) has_scanned: bool,
     pub(super) scan_progress: Option<(usize, usize)>,

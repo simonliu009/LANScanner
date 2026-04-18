@@ -70,13 +70,9 @@ where
     .center_y(Fill);
 
     let center_drag_zone = mouse_area(
-        container(
-            text("")
-                .width(Fill)
-                .height(Fill)
-        )
-        .center_y(Fill)
-        .width(Fill)
+        container(text("").width(Fill).height(Fill))
+            .center_y(Fill)
+            .width(Fill),
     )
     .on_press(on_window_action(WindowAction::Drag));
 
