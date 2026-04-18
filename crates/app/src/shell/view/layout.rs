@@ -409,7 +409,7 @@ fn visual_check_device_list(app: &ShellApp) -> Element<'_, Message> {
     ui::device_list::view(
         &app.devices,
         &app.online_evidence_by_ip,
-        app.show_extended_result_columns,
+        app.result_column_visibility,
         app.selected_device_id.as_deref(),
         app.selected_network()
             .map(|network| network.local_ip.as_str()),

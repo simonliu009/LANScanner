@@ -8,6 +8,7 @@ use ssh_core::docker::Container;
 use ssh_core::network::NetworkInterface;
 use ssh_core::scanner::{Device, LayeredScanDevice, NeighborEvidence};
 use tokio_util::sync::CancellationToken;
+use ui::device_list::ResultColumnVisibility;
 use ui::theme::{AppLanguage, ThemeMode};
 
 use crate::visual_check::VisualScene;
@@ -221,7 +222,8 @@ pub struct ShellApp {
     pub(super) online_evidence_by_ip: HashMap<String, NeighborEvidence>,
     pub(super) devices: Vec<Device>,
     pub(super) scan_result_filter: ScanResultFilter,
-    pub(super) show_extended_result_columns: bool,
+    pub(super) result_column_selector_open: bool,
+    pub(super) result_column_visibility: ResultColumnVisibility,
     pub(super) selected_device_id: Option<String>,
     pub(super) has_scanned: bool,
     pub(super) scan_progress: Option<(usize, usize)>,

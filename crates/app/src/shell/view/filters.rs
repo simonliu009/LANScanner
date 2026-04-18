@@ -1,5 +1,6 @@
-use iced::widget::{Space, button, container, row, text};
+use iced::widget::{Space, button, checkbox, column, container, row, text};
 use iced::{Alignment, Element, Length, Theme, border};
+use ui::device_list::ResultColumn;
 use ui::theme::{self, AppLanguage, colors};
 
 use crate::message::Message;
@@ -14,39 +15,47 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
             .into();
     }
 
-    container(
-        row![
-            scan_result_filter_button(
-                localized(app.app_language, "全部在线", "All Online"),
-                app.scan_result_filter == ScanResultFilter::AllOnline,
-                Message::ShowAllOnlineResults
+    let controls = row![
+        scan_result_filter_button(
+            localized(app.app_language, "全部在线", "All Online"),
+            app.scan_result_filter == ScanResultFilter::AllOnline,
+            Message::ShowAllOnlineResults
+        ),
+        scan_result_filter_button(
+            localized(app.app_language, "SSH", "SSH"),
+            app.scan_result_filter == ScanResultFilter::SshReady,
+            Message::ShowSshReadyResults
+        ),
+        scan_result_filter_button(
+            localized(
+                app.app_language,
+                if app.result_column_visibility.has_any_optional_column() {
+                    "列"
+                } else {
+                    "选择列"
+                },
+                if app.result_column_visibility.has_any_optional_column() {
+                    "Columns"
+                } else {
+                    "Choose Columns"
+                },
             ),
-            scan_result_filter_button(
-                localized(app.app_language, "SSH", "SSH"),
-                app.scan_result_filter == ScanResultFilter::SshReady,
-                Message::ShowSshReadyResults
-            ),
-            scan_result_filter_button(
-                localized(
-                    app.app_language,
-                    if app.show_extended_result_columns {
-                        "收起列"
-                    } else {
-                        "更多列"
-                    },
-                    if app.show_extended_result_columns {
-                        "Less Columns"
-                    } else {
-                        "More Columns"
-                    },
-                ),
-                app.show_extended_result_columns,
-                Message::ToggleExtendedResultColumns,
-            ),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center),
-    )
+            app.result_column_selector_open || app.result_column_visibility.has_any_optional_column(),
+            Message::ToggleResultColumnSelector,
+        ),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    let content = if app.result_column_selector_open {
+        column![controls, result_column_selector(app)]
+            .spacing(8)
+            .align_x(Alignment::End)
+    } else {
+        column![controls].spacing(0).align_x(Alignment::End)
+    };
+
+    container(content)
     .padding([3, 4])
     .style(|theme: &Theme| {
         let palette = colors::palette(theme);
@@ -59,6 +68,93 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
             })
     })
     .into()
+}
+
+fn result_column_selector(app: &ShellApp) -> Element<'_, Message> {
+    let visibility = app.result_column_visibility;
+    let entries = [
+        (ResultColumn::MacAddress, visibility.mac_address),
+        (ResultColumn::Hostname, visibility.hostname),
+        (ResultColumn::Vendor, visibility.vendor),
+        (ResultColumn::DnsName, visibility.dns_name),
+        (ResultColumn::MdnsName, visibility.mdns_name),
+        (ResultColumn::SmbName, visibility.smb_name),
+        (ResultColumn::SmbDomain, visibility.smb_domain),
+    ];
+
+    let selector = entries.into_iter().fold(
+        column![selector_hint(app.app_language)]
+            .spacing(6)
+            .width(Length::Shrink),
+        |column, (result_column, is_checked)| {
+            column.push(column_toggle(app.app_language, result_column, is_checked))
+        },
+    );
+
+    container(selector)
+        .padding([8, 10])
+        .style(|theme: &Theme| {
+            let palette = colors::palette(theme);
+            container::Style::default()
+                .background(palette.card)
+                .border(iced::Border {
+                    color: palette.border,
+                    width: 1.0,
+                    radius: border::radius(12),
+                })
+        })
+        .into()
+}
+
+fn selector_hint(language: AppLanguage) -> Element<'static, Message> {
+    text(localized(
+        language,
+        "勾选需要显示的列",
+        "Check columns to show",
+    ))
+    .size(11)
+    .style(|theme: &Theme| theme::text_muted(theme))
+    .into()
+}
+
+fn column_toggle(
+    language: AppLanguage,
+    column: ResultColumn,
+    is_checked: bool,
+) -> Element<'static, Message> {
+    checkbox(is_checked)
+        .label(result_column_label(language, column))
+        .size(14)
+        .spacing(8)
+        .text_size(12)
+        .style(|theme: &Theme, status| {
+            let palette = colors::palette(theme);
+            let base = iced::widget::checkbox::primary(theme, status);
+            iced::widget::checkbox::Style {
+                background: base.background,
+                icon_color: colors::LIGHT.card,
+                border: iced::Border {
+                    color: palette.border,
+                    width: 1.0,
+                    radius: border::radius(4),
+                },
+                text_color: Some(palette.text),
+            }
+        })
+        .on_toggle(move |checked| Message::SetResultColumnVisible(column, checked))
+        .into()
+}
+
+fn result_column_label(language: AppLanguage, column: ResultColumn) -> &'static str {
+    match column {
+        ResultColumn::MacAddress => localized(language, "MAC 地址", "MAC Address"),
+        ResultColumn::Hostname => localized(language, "主机名", "Hostname"),
+        ResultColumn::Vendor => localized(language, "厂商", "Vendor"),
+        ResultColumn::DnsName => localized(language, "DNS 名称", "DNS Name"),
+        ResultColumn::MdnsName => localized(language, "mDNS 名称", "mDNS Name"),
+        ResultColumn::SmbName => localized(language, "SMB 名称", "SMB Name"),
+        ResultColumn::SmbDomain => localized(language, "SMB 域", "SMB Domain"),
+    }
 }
 
 fn scan_result_filter_button<'a>(

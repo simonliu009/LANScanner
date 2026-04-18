@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.8] - 2026-04-18
+
+### Changed
+
+- Replaced the all-at-once expanded scan result view with per-column checkboxes so operators can reveal only the fields they need.
+- Removed the inaccurate device type column and fixed expanded table header alignment so headers always match the rendered data columns.
+
 ## [0.2.7] - 2026-04-18
 
 ### Changed

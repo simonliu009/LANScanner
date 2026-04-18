@@ -707,8 +707,12 @@ impl ShellApp {
                 }
                 Task::none()
             }
-            Message::ToggleExtendedResultColumns => {
-                self.show_extended_result_columns = !self.show_extended_result_columns;
+            Message::ToggleResultColumnSelector => {
+                self.result_column_selector_open = !self.result_column_selector_open;
+                Task::none()
+            }
+            Message::SetResultColumnVisible(column, visible) => {
+                self.result_column_visibility.set_visible(column, visible);
                 Task::none()
             }
             Message::ToggleVnc => update::credential::handle_toggle_vnc(self),

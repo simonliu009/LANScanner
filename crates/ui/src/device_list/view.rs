@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Theme, border};
 use ssh_core::scanner::{
-    Device, DeviceStatus, DeviceType, NeighborEvidence, vendor_name_from_mac_address,
+    Device, DeviceStatus, NeighborEvidence, vendor_name_from_mac_address,
 };
 
 use crate::theme::{self, AppLanguage, colors, fonts, icons::{self, FrameSpec, Glyph}};
@@ -27,8 +27,79 @@ const DNS_COL_FILL: u16 = 3;
 const MDNS_COL_FILL: u16 = 3;
 const SMB_NAME_COL_FILL: u16 = 3;
 const SMB_DOMAIN_COL_FILL: u16 = 3;
-const TYPE_COL_FILL: u16 = 2;
 const STATUS_COL_FILL: u16 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultColumn {
+    MacAddress,
+    Hostname,
+    Vendor,
+    DnsName,
+    MdnsName,
+    SmbName,
+    SmbDomain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResultColumnVisibility {
+    pub mac_address: bool,
+    pub hostname: bool,
+    pub vendor: bool,
+    pub dns_name: bool,
+    pub mdns_name: bool,
+    pub smb_name: bool,
+    pub smb_domain: bool,
+}
+
+impl Default for ResultColumnVisibility {
+    fn default() -> Self {
+        Self {
+            mac_address: false,
+            hostname: false,
+            vendor: false,
+            dns_name: false,
+            mdns_name: false,
+            smb_name: false,
+            smb_domain: false,
+        }
+    }
+}
+
+impl ResultColumnVisibility {
+    pub fn is_visible(&self, column: ResultColumn) -> bool {
+        match column {
+            ResultColumn::MacAddress => self.mac_address,
+            ResultColumn::Hostname => self.hostname,
+            ResultColumn::Vendor => self.vendor,
+            ResultColumn::DnsName => self.dns_name,
+            ResultColumn::MdnsName => self.mdns_name,
+            ResultColumn::SmbName => self.smb_name,
+            ResultColumn::SmbDomain => self.smb_domain,
+        }
+    }
+
+    pub fn set_visible(&mut self, column: ResultColumn, visible: bool) {
+        match column {
+            ResultColumn::MacAddress => self.mac_address = visible,
+            ResultColumn::Hostname => self.hostname = visible,
+            ResultColumn::Vendor => self.vendor = visible,
+            ResultColumn::DnsName => self.dns_name = visible,
+            ResultColumn::MdnsName => self.mdns_name = visible,
+            ResultColumn::SmbName => self.smb_name = visible,
+            ResultColumn::SmbDomain => self.smb_domain = visible,
+        }
+    }
+
+    pub fn has_any_optional_column(&self) -> bool {
+        self.mac_address
+            || self.hostname
+            || self.vendor
+            || self.dns_name
+            || self.mdns_name
+            || self.smb_name
+            || self.smb_domain
+    }
+}
 
 pub enum PlaceholderState {
     Idle,
@@ -51,7 +122,7 @@ enum PlaceholderVisual {
 pub fn view<'a, Message>(
     devices: &'a [Device],
     evidence_by_ip: &'a HashMap<String, NeighborEvidence>,
-    show_extended_columns: bool,
+    visible_columns: ResultColumnVisibility,
     selected_device_id: Option<&'a str>,
     local_ip: Option<&'a str>,
     app_language: AppLanguage,
@@ -64,7 +135,7 @@ where
         return placeholder(PlaceholderState::EmptyResults, app_language);
     }
 
-    let header = device_table_header(app_language, show_extended_columns);
+    let header = device_table_header(app_language, visible_columns);
     let mut ordered_devices = devices.iter().collect::<Vec<_>>();
     ordered_devices.sort_by_key(|device| local_ip != Some(device.ip.as_str()));
 
@@ -76,17 +147,22 @@ where
             let is_emphasized = is_selected || is_local;
             let select_message = on_select(device.id.clone());
             let evidence = evidence_by_ip.get(device.ip.as_str());
+            let mut item_row = row![
+                device_name_cell(device, is_emphasized, is_local, app_language),
+                device_ip_cell(&device.ip, is_emphasized),
+            ]
+            .spacing(COLUMN_GAP)
+            .align_y(Alignment::Center);
+
+            for column in optional_columns(visible_columns) {
+                item_row =
+                    item_row.push(result_column_cell(column, evidence, is_emphasized));
+            }
+
             let item = button(
-                row![
-                    device_name_cell(device, is_emphasized, is_local, app_language),
-                    device_ip_cell(&device.ip, is_emphasized),
-                    extended_cells(evidence, is_emphasized, show_extended_columns),
-                    device_type_cell(device.device_type, app_language, is_emphasized),
-                    device_status_cell(device.status, app_language),
-                ]
-                .spacing(COLUMN_GAP)
-                .height(LIST_ITEM_HEIGHT)
-                .align_y(Alignment::Center),
+                item_row
+                    .push(device_status_cell(device.status, app_language))
+                    .height(LIST_ITEM_HEIGHT),
             )
             .width(Fill)
             .padding([0.0, LIST_ITEM_HORIZONTAL_PADDING])
@@ -147,7 +223,7 @@ where
             .style(theme::styles::custom_scrollbar)
     ]
     .spacing(0)
-    .width(Length::Fixed(if show_extended_columns {
+    .width(Length::Fixed(if visible_columns.has_any_optional_column() {
         TABLE_MIN_WIDTH_EXTENDED
     } else {
         TABLE_MIN_WIDTH_BASIC
@@ -167,12 +243,12 @@ where
 
 fn device_table_header<'a, Message>(
     app_language: AppLanguage,
-    show_extended_columns: bool,
+    visible_columns: ResultColumnVisibility,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    container(header_row(app_language, show_extended_columns))
+    container(header_row(app_language, visible_columns))
     .padding(iced::Padding {
         top: 6.0,
         right: LIST_OUTER_PADDING_X + LIST_ITEM_HORIZONTAL_PADDING,
@@ -185,7 +261,7 @@ where
 
 fn header_row<'a, Message>(
     app_language: AppLanguage,
-    show_extended_columns: bool,
+    visible_columns: ResultColumnVisibility,
 ) -> iced::widget::Row<'a, Message>
 where
     Message: 'a,
@@ -197,37 +273,83 @@ where
     .spacing(COLUMN_GAP)
     .align_y(Alignment::Center);
 
-    if show_extended_columns {
-        row = row
-            .push(table_header_cell(localized(app_language, "MAC", "MAC"), MAC_COL_FILL))
-            .push(table_header_cell(
-                localized(app_language, "主机名", "Hostname"),
-                HOSTNAME_COL_FILL,
-            ))
-            .push(table_header_cell(localized(app_language, "厂商", "Vendor"), VENDOR_COL_FILL))
-            .push(table_header_cell(
-                localized(app_language, "DNS 名称", "DNS Name"),
-                DNS_COL_FILL,
-            ))
-            .push(table_header_cell(
-                localized(app_language, "mDNS 名称", "mDNS Name"),
-                MDNS_COL_FILL,
-            ))
-            .push(table_header_cell(
-                localized(app_language, "SMB 名称", "SMB Name"),
-                SMB_NAME_COL_FILL,
-            ))
-            .push(table_header_cell(
-                localized(app_language, "SMB 域", "SMB Domain"),
-                SMB_DOMAIN_COL_FILL,
-            ));
+    for column in optional_columns(visible_columns) {
+        row = row.push(table_header_cell(
+            result_column_label(column, app_language),
+            result_column_fill(column),
+        ));
     }
 
-    row.push(table_header_cell(localized(app_language, "类型", "Type"), TYPE_COL_FILL))
-        .push(table_header_cell(
+    row.push(table_header_cell(
             localized(app_language, "状态", "Status"),
             STATUS_COL_FILL,
         ))
+}
+
+fn optional_columns(visible_columns: ResultColumnVisibility) -> impl Iterator<Item = ResultColumn> {
+    [
+        ResultColumn::MacAddress,
+        ResultColumn::Hostname,
+        ResultColumn::Vendor,
+        ResultColumn::DnsName,
+        ResultColumn::MdnsName,
+        ResultColumn::SmbName,
+        ResultColumn::SmbDomain,
+    ]
+    .into_iter()
+    .filter(move |column| visible_columns.is_visible(*column))
+}
+
+fn result_column_cell<'a, Message>(
+    column: ResultColumn,
+    evidence: Option<&'a NeighborEvidence>,
+    is_selected: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let value = match column {
+        ResultColumn::MacAddress => evidence
+            .and_then(|item| item.mac_address.as_deref())
+            .unwrap_or("-"),
+        ResultColumn::Hostname => evidence.and_then(|item| item.hostname.as_deref()).unwrap_or("-"),
+        ResultColumn::Vendor => evidence
+            .and_then(|item| item.mac_address.as_deref())
+            .and_then(vendor_name_from_mac_address)
+            .unwrap_or("-"),
+        ResultColumn::DnsName => evidence.and_then(|item| item.dns_name.as_deref()).unwrap_or("-"),
+        ResultColumn::MdnsName => evidence.and_then(|item| item.mdns_name.as_deref()).unwrap_or("-"),
+        ResultColumn::SmbName => evidence.and_then(|item| item.smb_name.as_deref()).unwrap_or("-"),
+        ResultColumn::SmbDomain => evidence
+            .and_then(|item| item.smb_domain.as_deref())
+            .unwrap_or("-"),
+    };
+
+    plain_text_cell(value, result_column_fill(column), is_selected)
+}
+
+fn result_column_fill(column: ResultColumn) -> u16 {
+    match column {
+        ResultColumn::MacAddress => MAC_COL_FILL,
+        ResultColumn::Hostname => HOSTNAME_COL_FILL,
+        ResultColumn::Vendor => VENDOR_COL_FILL,
+        ResultColumn::DnsName => DNS_COL_FILL,
+        ResultColumn::MdnsName => MDNS_COL_FILL,
+        ResultColumn::SmbName => SMB_NAME_COL_FILL,
+        ResultColumn::SmbDomain => SMB_DOMAIN_COL_FILL,
+    }
+}
+
+fn result_column_label(column: ResultColumn, app_language: AppLanguage) -> &'static str {
+    match column {
+        ResultColumn::MacAddress => localized(app_language, "MAC", "MAC"),
+        ResultColumn::Hostname => localized(app_language, "主机名", "Hostname"),
+        ResultColumn::Vendor => localized(app_language, "厂商", "Vendor"),
+        ResultColumn::DnsName => localized(app_language, "DNS 名称", "DNS Name"),
+        ResultColumn::MdnsName => localized(app_language, "mDNS 名称", "mDNS Name"),
+        ResultColumn::SmbName => localized(app_language, "SMB 名称", "SMB Name"),
+        ResultColumn::SmbDomain => localized(app_language, "SMB 域", "SMB Domain"),
+    }
 }
 
 fn table_header_cell<'a, Message>(label: &'static str, fill: u16) -> Element<'a, Message>
@@ -297,65 +419,6 @@ where
     .into()
 }
 
-fn extended_cells<'a, Message>(
-    evidence: Option<&'a NeighborEvidence>,
-    is_selected: bool,
-    show_extended_columns: bool,
-) -> Element<'a, Message>
-where
-    Message: 'a,
-{
-    if !show_extended_columns {
-        return container(row![]).width(Length::Shrink).into();
-    }
-
-    row![
-        plain_text_cell(
-            evidence
-                .and_then(|item| item.mac_address.as_deref())
-                .unwrap_or("-"),
-            MAC_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence.and_then(|item| item.hostname.as_deref()).unwrap_or("-"),
-            HOSTNAME_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence
-                .and_then(|item| item.mac_address.as_deref())
-                .and_then(vendor_name_from_mac_address)
-                .unwrap_or("-"),
-            VENDOR_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence.and_then(|item| item.dns_name.as_deref()).unwrap_or("-"),
-            DNS_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence.and_then(|item| item.mdns_name.as_deref()).unwrap_or("-"),
-            MDNS_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence.and_then(|item| item.smb_name.as_deref()).unwrap_or("-"),
-            SMB_NAME_COL_FILL,
-            is_selected,
-        ),
-        plain_text_cell(
-            evidence.and_then(|item| item.smb_domain.as_deref()).unwrap_or("-"),
-            SMB_DOMAIN_COL_FILL,
-            is_selected,
-        ),
-    ]
-    .spacing(COLUMN_GAP)
-    .align_y(Alignment::Center)
-    .into()
-}
-
 fn plain_text_cell<'a, Message>(
     value: &'a str,
     fill: u16,
@@ -378,31 +441,6 @@ where
     )
     .width(Length::FillPortion(fill))
     .clip(true)
-    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
-    .into()
-}
-
-fn device_type_cell<'a, Message>(
-    device_type: DeviceType,
-    app_language: AppLanguage,
-    is_selected: bool,
-) -> Element<'a, Message>
-where
-    Message: 'a,
-{
-    container(
-        text(device_type_label(device_type, app_language))
-            .font(fonts::monospace())
-            .size(TABLE_TEXT_SIZE)
-            .style(move |theme: &Theme| {
-                if is_selected {
-                    theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
-                } else {
-                    theme::text_muted(theme)
-                }
-            }),
-    )
-    .width(Length::FillPortion(TYPE_COL_FILL))
     .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
 }
@@ -430,17 +468,6 @@ where
         .align_x(iced::alignment::Horizontal::Left)
         .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
         .into()
-}
-
-fn device_type_label(device_type: DeviceType, app_language: AppLanguage) -> &'static str {
-    match (device_type, app_language) {
-        (DeviceType::Laptop, AppLanguage::Chinese) => "笔记本",
-        (DeviceType::Laptop, AppLanguage::English) => "Laptop",
-        (DeviceType::Server, AppLanguage::Chinese) => "服务器",
-        (DeviceType::Server, AppLanguage::English) => "Server",
-        (DeviceType::Desktop, AppLanguage::Chinese) => "台式机",
-        (DeviceType::Desktop, AppLanguage::English) => "Desktop",
-    }
 }
 
 fn device_name_label(device: &Device, is_local: bool, app_language: AppLanguage) -> String {
