@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.5] - 2026-04-18
+
+### Fixed
+
+- Aligned the app package version, release metadata, and generated desktop bundle versions with the `v0.2.5` release.
+
 ## [0.1.0] - 2026-04-07
 
 ### Added
