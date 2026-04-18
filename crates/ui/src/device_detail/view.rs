@@ -1141,37 +1141,3 @@ fn state_tag<'a, Message: 'a>(
     })
     .into()
 }
-
-fn launcher_state_badge<'a, Message: 'a>(
-    label: &'static str,
-    tone: iced::Color,
-    background: iced::Color,
-) -> Element<'a, Message> {
-    let glyph = match label {
-        "处理中" | "Processing" => Glyph::Pending,
-        "稍后可用" | "Locked" => Glyph::Lock,
-        "不可用" | "Unavailable" => Glyph::Close,
-        _ => Glyph::Check,
-    };
-
-    container(icons::centered_compact(glyph, 16.0, 8.0, tone))
-        .width(22)
-        .height(22)
-        .center_x(Length::Fixed(22.0))
-        .center_y(Length::Fixed(22.0))
-        .style(move |_| {
-            container::Style::default()
-                .background(background)
-                .border(iced::Border {
-                    color: colors::rgba(
-                        (tone.r * 255.0).round() as u8,
-                        (tone.g * 255.0).round() as u8,
-                        (tone.b * 255.0).round() as u8,
-                        0.26,
-                    ),
-                    width: 1.0,
-                    radius: border::radius(999),
-                })
-        })
-        .into()
-}

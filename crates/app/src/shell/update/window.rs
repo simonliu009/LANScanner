@@ -81,7 +81,7 @@ fn apply_dwm_border_none(window_id: iced::window::Id) -> Task<Message> {
             );
         }
     })
-    .map(|_| Message::Noop)
+    .discard()
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -17,30 +17,11 @@ pub(crate) mod tasks {
         pub(in super::super) const RUSTDESK_DIRECT_IP_PORT: u16 =
             super::connect_impl::RUSTDESK_DIRECT_IP_PORT;
 
-        pub(in super::super) async fn probe_rustdesk_direct_ip_port(
-            device_ip: &str,
-        ) -> Result<(), String> {
-            super::connect_impl::probe_rustdesk_direct_ip_port(device_ip).await
-        }
-
-        pub(in super::super) async fn execute_launch_action(
-            action: super::super::PendingToolAction,
-            tool_path: std::path::PathBuf,
-        ) -> Result<crate::message::ConnectNotice, String> {
-            super::connect_impl::execute_launch_action(action, tool_path).await
-        }
-
         pub(in super::super) async fn prepare_ssh_launch_auth(
             context: &super::super::LaunchContext,
             consumer: ssh_core::ssh::auth::LaunchAuthConsumer,
         ) -> Result<ssh_core::ssh::auth::LaunchAuthPreparation, String> {
             super::connect_impl::prepare_ssh_launch_auth(context, consumer).await
-        }
-
-        pub(in super::super) fn shell_connect_notice(
-            preparation: &ssh_core::ssh::auth::LaunchAuthPreparation,
-        ) -> crate::message::ConnectNotice {
-            super::connect_impl::shell_connect_notice(preparation)
         }
     }
 
@@ -845,7 +826,6 @@ impl ShellApp {
                 self.spinner_phase = (self.spinner_phase + 1) % SPINNER_FRAMES.len();
                 Task::none()
             }
-            Message::Noop => Task::none(),
         }
     }
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.13] - 2026-04-18
+
+### Changed
+
+- Removed duplicated and unused connection helper code paths that were no longer part of the active launch flow.
+- Deleted unused placeholder message handling and obsolete device-detail badge helpers, and cleaned up related imports.
+- Kept the project building cleanly after the result-table refactor by trimming dead code introduced during the previous release step.
+
 ## [0.2.12] - 2026-04-18
 
 ### Changed

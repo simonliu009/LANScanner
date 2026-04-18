@@ -58,10 +58,6 @@ pub(super) enum VncCredentialSource {
 }
 
 impl LaunchContext {
-    pub(super) fn vnc_resolution_message(&self) -> Option<String> {
-        self.vnc_resolution_message_for_language(AppLanguage::Chinese)
-    }
-
     pub(super) fn vnc_resolution_message_for_language(
         &self,
         language: AppLanguage,
@@ -140,10 +136,6 @@ impl PendingToolAction {
             Self::Direct { tool, .. } => *tool,
             Self::DockerAttach { .. } => ToolKind::Vscode,
         }
-    }
-
-    pub(super) fn status_message(&self) -> String {
-        self.status_message_for_language(AppLanguage::Chinese)
     }
 
     pub(super) fn status_message_for_language(&self, language: AppLanguage) -> String {

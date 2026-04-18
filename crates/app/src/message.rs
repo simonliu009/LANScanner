@@ -121,5 +121,4 @@ pub enum Message {
     VisualCheckFailed(String),
     OpenGitHub,
     Tick,
-    Noop,
 }

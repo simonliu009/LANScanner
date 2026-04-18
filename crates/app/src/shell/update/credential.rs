@@ -4,18 +4,6 @@ use ssh_core::credential::{self, store};
 use crate::message::Message;
 
 use super::super::ShellApp;
-use super::super::state::ActiveModal;
-
-pub(super) fn handle_open_cred_modal(app: &mut ShellApp) -> Task<Message> {
-    if app.is_verifying || app.is_connecting {
-        return Task::none();
-    }
-
-    app.close_overlays();
-    app.reset_credential_form();
-    app.active_modal = Some(ActiveModal::CredentialManagement);
-    Task::none()
-}
 
 pub(super) fn handle_user_dropdown_opened(app: &mut ShellApp) -> Task<Message> {
     if app.user_dropdown_toggle_message().is_some() {
@@ -110,14 +98,6 @@ pub(super) fn handle_set_vnc_password(app: &mut ShellApp, value: String) -> Task
         app.vnc_password = value;
     }
 
-    Task::none()
-}
-
-pub(super) fn handle_close_cred_modal(app: &mut ShellApp) -> Task<Message> {
-    if matches!(app.active_modal, Some(ActiveModal::CredentialManagement)) {
-        app.active_modal = None;
-    }
-    app.reset_credential_form();
     Task::none()
 }
 

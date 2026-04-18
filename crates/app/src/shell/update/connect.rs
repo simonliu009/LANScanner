@@ -5,7 +5,6 @@ use iced::Task;
 use platform::app_finder;
 use ssh_core::credential::store::{self, ToolKind};
 use ssh_core::docker::{self, Container};
-use ssh_core::scanner::{Device, DeviceStatus};
 use ssh_core::ssh::auth::{KeyReadySource, LaunchAuthConsumer, LaunchAuthPreparation};
 use ui::theme::AppLanguage;
 
@@ -254,34 +253,6 @@ pub(super) fn handle_connect_result(
             message: error,
         },
     })
-}
-
-pub(super) fn active_connection_device_ip(app: &ShellApp) -> Option<&str> {
-    app.pending_tool_action
-        .as_ref()
-        .map(|action| match action {
-            PendingToolAction::Direct { context, .. } => context.device_ip.as_str(),
-            PendingToolAction::DockerAttach { context, .. } => context.device_ip.as_str(),
-        })
-        .or_else(|| {
-            app.pending_docker_context
-                .as_ref()
-                .map(|context| context.device_ip.as_str())
-        })
-}
-
-pub(super) fn device_detail_status(app: &ShellApp, device: &Device) -> String {
-    if active_connection_device_ip(app) == Some(device.ip.as_str()) {
-        return app
-            .connection_status
-            .clone()
-            .unwrap_or_else(|| match app.app_language {
-                AppLanguage::Chinese => String::from("正在准备连接"),
-                AppLanguage::English => String::from("Preparing connection"),
-            });
-    }
-
-    device_status_message(app.app_language, device.status)
 }
 
 fn start_shell_launch(app: &mut ShellApp, device_ip: String) -> Task<Message> {
@@ -616,35 +587,6 @@ fn unresolved_tool_path_message(language: AppLanguage, tool: ToolKind) -> String
         AppLanguage::English => format!(
             "No path is configured for {}. Install the tool first or choose its executable manually.",
             tool.label()
-        ),
-    }
-}
-
-fn device_status_message(language: AppLanguage, status: DeviceStatus) -> String {
-    match (language, status) {
-        (AppLanguage::Chinese, DeviceStatus::Untested) => {
-            String::from("凭据尚未检测；填写 SSH 用户名后，扫描结束会自动检测，也可手动重试。")
-        }
-        (AppLanguage::English, DeviceStatus::Untested) => String::from(
-            "Credentials have not been checked yet. Fill in an SSH username and the app will verify automatically after scanning, or you can retry manually.",
-        ),
-        (AppLanguage::Chinese, DeviceStatus::Ready) => {
-            String::from("SSH 凭据检测成功；外部工具的免密前置会在启动连接时单独校验。")
-        }
-        (AppLanguage::English, DeviceStatus::Ready) => String::from(
-            "SSH credential verification succeeded. Any passwordless launch preparation for external tools is checked separately when the connection starts.",
-        ),
-        (AppLanguage::Chinese, DeviceStatus::Denied) => {
-            String::from("检测结果为错误（用户名明显错误或认证失败）；仍可直接发起快速连接。")
-        }
-        (AppLanguage::English, DeviceStatus::Denied) => String::from(
-            "Verification failed, usually because the username is wrong or authentication was denied. You can still launch a quick connection directly.",
-        ),
-        (AppLanguage::Chinese, DeviceStatus::Error) => String::from(
-            "检测结果为异常（仅用户名或网络抖动时可能无法稳定判定）；仍可直接发起快速连接。",
-        ),
-        (AppLanguage::English, DeviceStatus::Error) => String::from(
-            "Verification ended in an indeterminate error, which can happen with username-only input or unstable network conditions. You can still launch a quick connection directly.",
         ),
     }
 }
