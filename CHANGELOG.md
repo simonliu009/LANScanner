@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.9] - 2026-04-18
+
+### Changed
+
+- Changed the scan results table to show column selectors in a single horizontal row of checkboxes.
+- Split the original mixed device label into separate `Device Name` and `Network Name` columns, and fixed the local machine row to display `[本机]` as its base device name.
+
 ## [0.2.8] - 2026-04-18
 
 ### Changed

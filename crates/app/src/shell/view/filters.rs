@@ -1,4 +1,4 @@
-use iced::widget::{Space, button, checkbox, column, container, row, text};
+use iced::widget::{Space, button, checkbox, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Length, Theme, border};
 use ui::device_list::ResultColumn;
 use ui::theme::{self, AppLanguage, colors};
@@ -82,17 +82,27 @@ fn result_column_selector(app: &ShellApp) -> Element<'_, Message> {
         (ResultColumn::SmbDomain, visibility.smb_domain),
     ];
 
-    let selector = entries.into_iter().fold(
-        column![selector_hint(app.app_language)]
-            .spacing(6)
-            .width(Length::Shrink),
-        |column, (result_column, is_checked)| {
-            column.push(column_toggle(app.app_language, result_column, is_checked))
+    let selector_row = entries.into_iter().fold(
+        row!().spacing(14).align_y(Alignment::Center),
+        |row, (result_column, is_checked)| {
+            row.push(column_toggle(app.app_language, result_column, is_checked))
         },
     );
 
+    let selector = column![
+        selector_hint(app.app_language),
+        scrollable(selector_row)
+            .direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::default(),
+            ))
+            .width(Length::Fill)
+    ]
+    .spacing(6)
+    .width(Length::Fill);
+
     container(selector)
         .padding([8, 10])
+        .width(Length::Fill)
         .style(|theme: &Theme| {
             let palette = colors::palette(theme);
             container::Style::default()
@@ -125,7 +135,7 @@ fn column_toggle(
     checkbox(is_checked)
         .label(result_column_label(language, column))
         .size(14)
-        .spacing(8)
+        .spacing(6)
         .text_size(12)
         .style(|theme: &Theme, status| {
             let palette = colors::palette(theme);

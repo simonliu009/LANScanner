@@ -16,9 +16,10 @@ const LIST_ITEM_RADIUS: f32 = 9.0;
 const HEADER_HEIGHT: f32 = 28.0;
 const COLUMN_GAP: f32 = 10.0;
 const TABLE_TEXT_SIZE: f32 = 11.0;
-const TABLE_MIN_WIDTH_BASIC: f32 = 820.0;
-const TABLE_MIN_WIDTH_EXTENDED: f32 = 1880.0;
+const TABLE_MIN_WIDTH_BASIC: f32 = 1040.0;
+const TABLE_MIN_WIDTH_EXTENDED: f32 = 2100.0;
 const DEVICE_COL_FILL: u16 = 4;
+const NETWORK_NAME_COL_FILL: u16 = 4;
 const IP_COL_FILL: u16 = 3;
 const MAC_COL_FILL: u16 = 3;
 const HOSTNAME_COL_FILL: u16 = 3;
@@ -147,12 +148,14 @@ where
             let is_emphasized = is_selected || is_local;
             let select_message = on_select(device.id.clone());
             let evidence = evidence_by_ip.get(device.ip.as_str());
-            let mut item_row = row![
-                device_name_cell(device, is_emphasized, is_local, app_language),
-                device_ip_cell(&device.ip, is_emphasized),
-            ]
-            .spacing(COLUMN_GAP)
-            .align_y(Alignment::Center);
+            let mut item_row =
+                row![
+                    device_name_cell(device, evidence, is_emphasized, is_local),
+                    network_name_cell(evidence, is_emphasized),
+                    device_ip_cell(&device.ip, is_emphasized),
+                ]
+                .spacing(COLUMN_GAP)
+                .align_y(Alignment::Center);
 
             for column in optional_columns(visible_columns) {
                 item_row =
@@ -267,7 +270,11 @@ where
     Message: 'a,
 {
     let mut row = row![
-        table_header_cell(localized(app_language, "设备", "Device"), DEVICE_COL_FILL),
+        table_header_cell(localized(app_language, "设备名", "Device Name"), DEVICE_COL_FILL),
+        table_header_cell(
+            localized(app_language, "网络名称", "Network Name"),
+            NETWORK_NAME_COL_FILL,
+        ),
         table_header_cell(localized(app_language, "IP 地址", "IP Address"), IP_COL_FILL),
     ]
     .spacing(COLUMN_GAP)
@@ -369,15 +376,15 @@ where
 
 fn device_name_cell<'a, Message>(
     device: &'a Device,
+    evidence: Option<&'a NeighborEvidence>,
     is_emphasized: bool,
     is_local: bool,
-    app_language: AppLanguage,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
     container(
-        text(device_name_label(device, is_local, app_language))
+        text(device_name_label(device, evidence, is_local))
             .font(fonts::monospace())
             .size(TABLE_TEXT_SIZE)
             .style(move |theme: &Theme| {
@@ -393,6 +400,20 @@ where
     .width(Length::FillPortion(DEVICE_COL_FILL))
     .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
+}
+
+fn network_name_cell<'a, Message>(
+    evidence: Option<&'a NeighborEvidence>,
+    is_emphasized: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    plain_text_cell(
+        network_name_label(evidence).unwrap_or("-"),
+        NETWORK_NAME_COL_FILL,
+        is_emphasized,
+    )
 }
 
 fn device_ip_cell<'a, Message>(
@@ -470,12 +491,32 @@ where
         .into()
 }
 
-fn device_name_label(device: &Device, is_local: bool, app_language: AppLanguage) -> String {
+fn device_name_label(
+    device: &Device,
+    evidence: Option<&NeighborEvidence>,
+    is_local: bool,
+) -> String {
     if is_local {
-        format!("{} [{}]", device.name, localized_local_label(app_language))
-    } else {
-        device.name.clone()
+        return String::from("[本机]");
     }
+
+    let full_name = device.name.as_str();
+    let Some(network_name) = network_name_label(evidence) else {
+        return device.name.clone();
+    };
+
+    let suffix = format!(" ({network_name})");
+    full_name
+        .strip_suffix(suffix.as_str())
+        .unwrap_or(full_name)
+        .to_owned()
+}
+
+fn network_name_label(evidence: Option<&NeighborEvidence>) -> Option<&str> {
+    evidence
+        .and_then(|item| item.mdns_name.as_deref())
+        .or_else(|| evidence.and_then(|item| item.dns_name.as_deref()))
+        .or_else(|| evidence.and_then(|item| item.hostname.as_deref()))
 }
 
 fn device_status_label(status: DeviceStatus, app_language: AppLanguage) -> &'static str {
@@ -765,13 +806,6 @@ fn empty_results_description(app_language: AppLanguage) -> String {
         AppLanguage::English => String::from(
             "No online devices were found on this subnet. Try another interface or scan again later.",
         ),
-    }
-}
-
-fn localized_local_label(app_language: AppLanguage) -> &'static str {
-    match app_language {
-        AppLanguage::Chinese => "本机",
-        AppLanguage::English => "This Device",
     }
 }
 
