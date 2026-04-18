@@ -72,6 +72,8 @@ where
     pub items: &'a [T],
     pub selection: Option<&'a T>,
     pub placeholder: DropdownPlaceholder<'a>,
+    pub compact_trigger: bool,
+    pub trigger_height: Option<f32>,
     pub show_trigger_icon: bool,
     pub show_option_icon: bool,
     pub footer_action: Option<Message>,
@@ -99,6 +101,8 @@ where
         items,
         selection,
         placeholder,
+        compact_trigger,
+        trigger_height,
         show_trigger_icon,
         show_option_icon,
         footer_action,
@@ -111,6 +115,8 @@ where
     let trigger = trigger(
         selection,
         placeholder,
+        compact_trigger,
+        trigger_height.unwrap_or(TRIGGER_HEIGHT),
         show_trigger_icon,
         state.is_open,
         state.on_toggle.clone(),
@@ -149,6 +155,8 @@ where
 fn trigger<'a, T, Message>(
     selection: Option<&'a T>,
     placeholder: DropdownPlaceholder<'a>,
+    compact_trigger: bool,
+    trigger_height: f32,
     show_trigger_icon: bool,
     is_open: bool,
     on_toggle: Option<Message>,
@@ -163,12 +171,13 @@ where
     let mut trigger = button(trigger_content(
         selected.as_ref(),
         placeholder,
+        compact_trigger,
         show_trigger_icon,
         is_open,
         is_disabled,
     ))
     .width(Fill)
-    .padding([10, 14])
+    .padding(if compact_trigger { [7, 12] } else { [10, 14] })
     .style(move |theme: &Theme, status| theme::styles::dropdown_trigger(theme, status, is_open));
 
     if let Some(message) = on_toggle {
@@ -177,7 +186,7 @@ where
 
     container(trigger)
         .width(Fill)
-        .height(Length::Fixed(TRIGGER_HEIGHT))
+        .height(Length::Fixed(trigger_height))
         .into()
 }
 
@@ -325,6 +334,7 @@ where
 fn trigger_content<'a, Message>(
     selected: Option<&DropdownEntry>,
     placeholder: DropdownPlaceholder<'_>,
+    compact_trigger: bool,
     show_trigger_icon: bool,
     is_open: bool,
     is_disabled: bool,
@@ -352,7 +362,7 @@ where
                 details,
                 has_selection,
                 is_disabled,
-                true
+                compact_trigger
             ))
             .width(Fill)
             .clip(true),
@@ -368,7 +378,7 @@ where
                 details,
                 has_selection,
                 is_disabled,
-                false
+                compact_trigger
             ))
             .width(Fill),
             chevron(is_open, is_disabled),

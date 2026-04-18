@@ -29,6 +29,23 @@ pub fn body_alt() -> Font {
     }
 }
 
+pub fn monospace() -> Font {
+    #[cfg(target_os = "windows")]
+    {
+        Font::with_name("Consolas")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Font::with_name("Menlo")
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        Font::with_name("DejaVu Sans Mono")
+    }
+}
+
 pub fn icon() -> Font {
     #[cfg(target_os = "windows")]
     {

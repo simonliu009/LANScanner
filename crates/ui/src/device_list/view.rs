@@ -1,11 +1,34 @@
-use iced::widget::{Space, button, column, container, row, scrollable, text};
-use iced::{Alignment, Element, Fill, Length, Theme, border};
-use ssh_core::scanner::{Device, DeviceStatus, DeviceType};
+use std::collections::HashMap;
 
-use crate::theme::{
-    self, AppLanguage, colors, fonts,
-    icons::{self, FrameSpec, Glyph},
+use iced::widget::{button, column, container, row, scrollable, text};
+use iced::{Alignment, Element, Fill, Length, Theme, border};
+use ssh_core::scanner::{
+    Device, DeviceStatus, DeviceType, NeighborEvidence, vendor_name_from_mac_address,
 };
+
+use crate::theme::{self, AppLanguage, colors, fonts, icons::{self, FrameSpec, Glyph}};
+
+const LIST_OUTER_PADDING_X: f32 = 10.0;
+const LIST_OUTER_PADDING_Y: f32 = 6.0;
+const LIST_ITEM_HEIGHT: f32 = 46.0;
+const LIST_ITEM_HORIZONTAL_PADDING: f32 = 8.0;
+const LIST_ITEM_RADIUS: f32 = 9.0;
+const HEADER_HEIGHT: f32 = 28.0;
+const COLUMN_GAP: f32 = 10.0;
+const TABLE_TEXT_SIZE: f32 = 11.0;
+const TABLE_MIN_WIDTH_BASIC: f32 = 820.0;
+const TABLE_MIN_WIDTH_EXTENDED: f32 = 1880.0;
+const DEVICE_COL_FILL: u16 = 4;
+const IP_COL_FILL: u16 = 3;
+const MAC_COL_FILL: u16 = 3;
+const HOSTNAME_COL_FILL: u16 = 3;
+const VENDOR_COL_FILL: u16 = 4;
+const DNS_COL_FILL: u16 = 3;
+const MDNS_COL_FILL: u16 = 3;
+const SMB_NAME_COL_FILL: u16 = 3;
+const SMB_DOMAIN_COL_FILL: u16 = 3;
+const TYPE_COL_FILL: u16 = 2;
+const STATUS_COL_FILL: u16 = 2;
 
 pub enum PlaceholderState {
     Idle,
@@ -27,6 +50,8 @@ enum PlaceholderVisual {
 
 pub fn view<'a, Message>(
     devices: &'a [Device],
+    evidence_by_ip: &'a HashMap<String, NeighborEvidence>,
+    show_extended_columns: bool,
     selected_device_id: Option<&'a str>,
     local_ip: Option<&'a str>,
     app_language: AppLanguage,
@@ -39,54 +64,28 @@ where
         return placeholder(PlaceholderState::EmptyResults, app_language);
     }
 
+    let header = device_table_header(app_language, show_extended_columns);
     let items = devices.iter().fold(
-        column!().spacing(4).padding([12.0, 12.0]),
+        column!().spacing(2).padding([LIST_OUTER_PADDING_Y, LIST_OUTER_PADDING_X]),
         |column, device| {
             let is_selected = selected_device_id == Some(device.id.as_str());
             let is_local = local_ip == Some(device.ip.as_str());
             let select_message = on_select(device.id.clone());
+            let evidence = evidence_by_ip.get(device.ip.as_str());
             let item = button(
                 row![
-                    row![
-                        device_icon(device.device_type, is_selected, is_local),
-                        column![
-                            row![
-                                text(&device.name).font(fonts::semibold()).size(14).style(
-                                    move |theme: &Theme| {
-                                        let palette = colors::palette(theme);
-
-                                        if is_selected {
-                                            theme::solid_text(palette.primary)
-                                        } else {
-                                            theme::text_primary(theme)
-                                        }
-                                    }
-                                ),
-                                local_badge(is_local, app_language),
-                            ]
-                            .spacing(8)
-                            .align_y(Alignment::Center),
-                            ip_selection_affordance(
-                                &device.ip,
-                                is_selected,
-                                is_local,
-                                app_language
-                            ),
-                        ]
-                        .spacing(5)
-                        .width(Fill),
-                    ]
-                    .spacing(12)
-                    .width(Fill)
-                    .align_y(Alignment::Center),
-                    Space::new().width(Length::Shrink),
-                    status_badge(device.status, app_language),
+                    device_name_cell(device, is_selected, is_local, app_language),
+                    device_ip_cell(&device.ip, is_selected, is_local),
+                    extended_cells(evidence, is_selected, show_extended_columns),
+                    device_type_cell(device.device_type, app_language, is_selected),
+                    device_status_cell(device.status, app_language),
                 ]
-                .height(64.0)
+                .spacing(COLUMN_GAP)
+                .height(LIST_ITEM_HEIGHT)
                 .align_y(Alignment::Center),
             )
             .width(Fill)
-            .padding([0.0, 12.0])
+            .padding([0.0, LIST_ITEM_HORIZONTAL_PADDING])
             .style(move |theme: &Theme, status| {
                 let palette = colors::palette(theme);
                 let is_dark = palette.card == colors::DARK.card;
@@ -137,7 +136,7 @@ where
                             iced::Color::TRANSPARENT
                         },
                         width: if is_selected || is_local { 1.0 } else { 0.0 },
-                        radius: border::radius(12),
+                        radius: border::radius(LIST_ITEM_RADIUS),
                     },
                     shadow: iced::Shadow::default(),
                 }
@@ -148,100 +147,337 @@ where
         },
     );
 
-    scrollable(items)
+    let table = column![
+        header,
+        scrollable(items)
+            .width(Fill)
+            .height(Fill)
+            .style(theme::styles::custom_scrollbar)
+    ]
+    .spacing(0)
+    .width(Length::Fixed(if show_extended_columns {
+        TABLE_MIN_WIDTH_EXTENDED
+    } else {
+        TABLE_MIN_WIDTH_BASIC
+    }))
+    .height(Fill);
+
+    scrollable(table)
+        .direction(scrollable::Direction::Both {
+            vertical: scrollable::Scrollbar::default(),
+            horizontal: scrollable::Scrollbar::default(),
+        })
         .width(Fill)
         .height(Fill)
         .style(theme::styles::custom_scrollbar)
         .into()
 }
 
-fn ip_selection_affordance<'a, Message>(
-    ip: &'a str,
-    selected: bool,
+fn device_table_header<'a, Message>(
+    app_language: AppLanguage,
+    show_extended_columns: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    container(header_row(app_language, show_extended_columns))
+    .padding(iced::Padding {
+        top: 6.0,
+        right: LIST_OUTER_PADDING_X + LIST_ITEM_HORIZONTAL_PADDING,
+        bottom: 4.0,
+        left: LIST_OUTER_PADDING_X + LIST_ITEM_HORIZONTAL_PADDING,
+    })
+    .height(Length::Fixed(HEADER_HEIGHT))
+    .into()
+}
+
+fn header_row<'a, Message>(
+    app_language: AppLanguage,
+    show_extended_columns: bool,
+) -> iced::widget::Row<'a, Message>
+where
+    Message: 'a,
+{
+    let mut row = row![
+        table_header_cell(localized(app_language, "设备", "Device"), DEVICE_COL_FILL),
+        table_header_cell(localized(app_language, "IP 地址", "IP Address"), IP_COL_FILL),
+    ]
+    .spacing(COLUMN_GAP)
+    .align_y(Alignment::Center);
+
+    if show_extended_columns {
+        row = row
+            .push(table_header_cell(localized(app_language, "MAC", "MAC"), MAC_COL_FILL))
+            .push(table_header_cell(
+                localized(app_language, "主机名", "Hostname"),
+                HOSTNAME_COL_FILL,
+            ))
+            .push(table_header_cell(localized(app_language, "厂商", "Vendor"), VENDOR_COL_FILL))
+            .push(table_header_cell(
+                localized(app_language, "DNS 名称", "DNS Name"),
+                DNS_COL_FILL,
+            ))
+            .push(table_header_cell(
+                localized(app_language, "mDNS 名称", "mDNS Name"),
+                MDNS_COL_FILL,
+            ))
+            .push(table_header_cell(
+                localized(app_language, "SMB 名称", "SMB Name"),
+                SMB_NAME_COL_FILL,
+            ))
+            .push(table_header_cell(
+                localized(app_language, "SMB 域", "SMB Domain"),
+                SMB_DOMAIN_COL_FILL,
+            ));
+    }
+
+    row.push(table_header_cell(localized(app_language, "类型", "Type"), TYPE_COL_FILL))
+        .push(table_header_cell(
+            localized(app_language, "状态", "Status"),
+            STATUS_COL_FILL,
+        ))
+}
+
+fn table_header_cell<'a, Message>(label: &'static str, fill: u16) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    container(
+        text(label)
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(|theme: &Theme| theme::text_muted(theme)),
+    )
+    .width(Length::FillPortion(fill))
+    .center_y(Length::Fixed(HEADER_HEIGHT))
+    .into()
+}
+
+fn device_name_cell<'a, Message>(
+    device: &'a Device,
+    is_selected: bool,
     is_local: bool,
     app_language: AppLanguage,
 ) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    let label = if is_local {
-        format!("IP: {ip} · {}", localized_local_label(app_language))
-    } else {
-        format!("IP: {ip}")
-    };
+    container(
+        text(device_name_label(device, is_local, app_language))
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(move |theme: &Theme| {
+                let palette = colors::palette(theme);
 
-    container(text(label).size(12).style(move |theme: &Theme| {
-        if selected {
-            theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
-        } else if is_local {
-            theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
-        } else {
-            theme::text_muted(theme)
-        }
-    }))
-    .padding([4.0, 10.0])
-    .style(move |theme: &Theme| {
-        let palette = colors::palette(theme);
-        let is_dark = palette.card == colors::DARK.card;
-        let (background, border_color) = if selected {
-            (
-                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.24 } else { 0.16 }),
-                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.46 } else { 0.30 }),
-            )
-        } else if is_local {
-            (
-                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.16 } else { 0.10 }),
-                colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.34 } else { 0.22 }),
-            )
-        } else {
-            (palette.input, palette.border)
-        };
-
-        container::Style::default()
-            .background(background)
-            .border(iced::Border {
-                color: border_color,
-                width: 1.0,
-                radius: border::radius(999),
-            })
-    })
+                if is_selected {
+                    theme::solid_text(palette.primary)
+                } else {
+                    theme::text_primary(theme)
+                }
+            }),
+    )
+    .width(Length::FillPortion(DEVICE_COL_FILL))
+    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
     .into()
 }
 
-fn local_badge<'a, Message>(is_local: bool, app_language: AppLanguage) -> Element<'a, Message>
+fn device_ip_cell<'a, Message>(
+    ip: &'a str,
+    selected: bool,
+    is_local: bool,
+) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    if !is_local {
-        return Space::new()
-            .width(Length::Shrink)
-            .height(Length::Shrink)
-            .into();
+    container(
+        text(ip)
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(move |theme: &Theme| {
+                if selected || is_local {
+                    theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
+                } else {
+                    theme::text_muted(theme)
+                }
+            }),
+    )
+    .width(Length::FillPortion(IP_COL_FILL))
+    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
+    .into()
+}
+
+fn extended_cells<'a, Message>(
+    evidence: Option<&'a NeighborEvidence>,
+    is_selected: bool,
+    show_extended_columns: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    if !show_extended_columns {
+        return container(row![]).width(Length::Shrink).into();
     }
 
-    container(
-        text(localized_local_label(app_language))
-            .size(11)
-            .font(fonts::semibold())
-            .style(|_| theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))),
-    )
-    .padding([3.0, 8.0])
-    .style(|theme: &Theme| {
-        let is_dark = colors::palette(theme).card == colors::DARK.card;
-        container::Style::default()
-            .background(colors::rgba(
-                0x3B,
-                0x82,
-                0xF6,
-                if is_dark { 0.16 } else { 0.10 },
-            ))
-            .border(iced::Border {
-                color: colors::rgba(0x3B, 0x82, 0xF6, if is_dark { 0.34 } else { 0.22 }),
-                width: 1.0,
-                radius: border::radius(999),
-            })
-    })
+    row![
+        plain_text_cell(
+            evidence
+                .and_then(|item| item.mac_address.as_deref())
+                .unwrap_or("-"),
+            MAC_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence.and_then(|item| item.hostname.as_deref()).unwrap_or("-"),
+            HOSTNAME_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence
+                .and_then(|item| item.mac_address.as_deref())
+                .and_then(vendor_name_from_mac_address)
+                .unwrap_or("-"),
+            VENDOR_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence.and_then(|item| item.dns_name.as_deref()).unwrap_or("-"),
+            DNS_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence.and_then(|item| item.mdns_name.as_deref()).unwrap_or("-"),
+            MDNS_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence.and_then(|item| item.smb_name.as_deref()).unwrap_or("-"),
+            SMB_NAME_COL_FILL,
+            is_selected,
+        ),
+        plain_text_cell(
+            evidence.and_then(|item| item.smb_domain.as_deref()).unwrap_or("-"),
+            SMB_DOMAIN_COL_FILL,
+            is_selected,
+        ),
+    ]
+    .spacing(COLUMN_GAP)
+    .align_y(Alignment::Center)
     .into()
+}
+
+fn plain_text_cell<'a, Message>(
+    value: &'a str,
+    fill: u16,
+    is_selected: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    container(
+        text(value)
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(move |theme: &Theme| {
+                if is_selected {
+                    theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
+                } else {
+                    theme::text_muted(theme)
+                }
+            }),
+    )
+    .width(Length::FillPortion(fill))
+    .clip(true)
+    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
+    .into()
+}
+
+fn device_type_cell<'a, Message>(
+    device_type: DeviceType,
+    app_language: AppLanguage,
+    is_selected: bool,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    container(
+        text(device_type_label(device_type, app_language))
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(move |theme: &Theme| {
+                if is_selected {
+                    theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
+                } else {
+                    theme::text_muted(theme)
+                }
+            }),
+    )
+    .width(Length::FillPortion(TYPE_COL_FILL))
+    .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
+    .into()
+}
+
+fn device_status_cell<'a, Message>(
+    status: DeviceStatus,
+    app_language: AppLanguage,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    container(
+        text(device_status_label(status, app_language))
+            .font(fonts::monospace())
+            .size(TABLE_TEXT_SIZE)
+            .style(move |theme: &Theme| match status {
+                DeviceStatus::Ready => theme::solid_text(colors::rgb(0x16, 0xA3, 0x4A)),
+                DeviceStatus::Denied | DeviceStatus::Error => {
+                    theme::solid_text(colors::rgb(0xDC, 0x26, 0x26))
+                }
+                DeviceStatus::Untested => theme::text_muted(theme),
+            }),
+    )
+        .width(Length::FillPortion(STATUS_COL_FILL))
+        .align_x(iced::alignment::Horizontal::Left)
+        .center_y(Length::Fixed(LIST_ITEM_HEIGHT))
+        .into()
+}
+
+fn device_type_label(device_type: DeviceType, app_language: AppLanguage) -> &'static str {
+    match (device_type, app_language) {
+        (DeviceType::Laptop, AppLanguage::Chinese) => "笔记本",
+        (DeviceType::Laptop, AppLanguage::English) => "Laptop",
+        (DeviceType::Server, AppLanguage::Chinese) => "服务器",
+        (DeviceType::Server, AppLanguage::English) => "Server",
+        (DeviceType::Desktop, AppLanguage::Chinese) => "台式机",
+        (DeviceType::Desktop, AppLanguage::English) => "Desktop",
+    }
+}
+
+fn device_name_label(device: &Device, is_local: bool, app_language: AppLanguage) -> String {
+    if is_local {
+        format!("{} [{}]", device.name, localized_local_label(app_language))
+    } else {
+        device.name.clone()
+    }
+}
+
+fn device_status_label(status: DeviceStatus, app_language: AppLanguage) -> &'static str {
+    match (status, app_language) {
+        (DeviceStatus::Untested, AppLanguage::Chinese) => "未检测",
+        (DeviceStatus::Untested, AppLanguage::English) => "UNTESTED",
+        (DeviceStatus::Ready, AppLanguage::Chinese) => "就绪",
+        (DeviceStatus::Ready, AppLanguage::English) => "READY",
+        (DeviceStatus::Denied, AppLanguage::Chinese) => "拒绝",
+        (DeviceStatus::Denied, AppLanguage::English) => "DENIED",
+        (DeviceStatus::Error, AppLanguage::Chinese) => "错误",
+        (DeviceStatus::Error, AppLanguage::English) => "ERROR",
+    }
+}
+
+fn localized(language: AppLanguage, chinese: &'static str, english: &'static str) -> &'static str {
+    match language {
+        AppLanguage::Chinese => chinese,
+        AppLanguage::English => english,
+    }
 }
 
 pub fn placeholder<'a, Message>(
@@ -417,128 +653,6 @@ fn empty_state_icon<'a, Message: 'a>(
         .into()
 }
 
-fn device_icon<'a, Message: 'a>(
-    device_type: DeviceType,
-    selected: bool,
-    is_local: bool,
-) -> Element<'a, Message> {
-    let tone = if selected || is_local {
-        iced::Color::WHITE
-    } else {
-        colors::rgb(0x6B, 0x72, 0x80)
-    };
-
-    container(icons::centered(
-        device_type_glyph(device_type),
-        40.0,
-        14.0,
-        tone,
-    ))
-    .width(40)
-    .height(40)
-    .center_x(Length::Fixed(40.0))
-    .center_y(Length::Fixed(40.0))
-    .style(move |theme: &Theme| {
-        let palette = colors::palette(theme);
-        let (background, border_color) = if selected {
-            (palette.primary, palette.primary)
-        } else if is_local {
-            (colors::rgb(0x3B, 0x82, 0xF6), colors::rgb(0x3B, 0x82, 0xF6))
-        } else {
-            (palette.input, palette.border)
-        };
-
-        container::Style::default()
-            .background(background)
-            .border(iced::Border {
-                color: border_color,
-                width: 1.0,
-                radius: border::radius(12),
-            })
-    })
-    .into()
-}
-
-fn status_badge<'a, Message: 'a>(
-    status: DeviceStatus,
-    app_language: AppLanguage,
-) -> Element<'a, Message> {
-    let (label, glyph, tone) = match status {
-        DeviceStatus::Untested => (
-            status_badge_untested_label(app_language),
-            Glyph::Pending,
-            colors::rgb(0x9C, 0xA3, 0xAF),
-        ),
-        DeviceStatus::Ready => (
-            status_badge_ready_label(app_language),
-            Glyph::CircleCheck,
-            colors::rgb(0x22, 0xC5, 0x5E),
-        ),
-        DeviceStatus::Denied | DeviceStatus::Error => (
-            status_badge_failed_label(app_language),
-            Glyph::CircleX,
-            colors::rgb(0xEF, 0x44, 0x44),
-        ),
-    };
-
-    container(
-        row![
-            container(icons::centered(glyph, 20.0, 14.0, tone))
-                .width(22)
-                .height(22)
-                .center_x(Length::Fixed(22.0))
-                .center_y(Length::Fixed(22.0))
-                .style(move |_theme: &Theme| {
-                    container::Style::default()
-                        .background(colors::rgba(
-                            (tone.r * 255.0).round() as u8,
-                            (tone.g * 255.0).round() as u8,
-                            (tone.b * 255.0).round() as u8,
-                            0.1,
-                        ))
-                        .border(iced::Border {
-                            color: colors::rgba(
-                                (tone.r * 255.0).round() as u8,
-                                (tone.g * 255.0).round() as u8,
-                                (tone.b * 255.0).round() as u8,
-                                0.3,
-                            ),
-                            width: 1.0,
-                            radius: border::radius(999),
-                        })
-                }),
-            text(label)
-                .font(fonts::body())
-                .size(11)
-                .style(move |_| theme::solid_text(tone)),
-        ]
-        .spacing(7)
-        .align_y(Alignment::Center),
-    )
-    .padding([5, 9])
-    .style(move |theme: &Theme| {
-        let is_dark = colors::palette(theme).card == colors::DARK.card;
-        container::Style::default()
-            .background(colors::rgba(
-                (tone.r * 255.0).round() as u8,
-                (tone.g * 255.0).round() as u8,
-                (tone.b * 255.0).round() as u8,
-                if is_dark { 0.1 } else { 0.08 },
-            ))
-            .border(iced::Border {
-                color: colors::rgba(
-                    (tone.r * 255.0).round() as u8,
-                    (tone.g * 255.0).round() as u8,
-                    (tone.b * 255.0).round() as u8,
-                    0.2,
-                ),
-                width: 1.0,
-                radius: border::radius(999),
-            })
-    })
-    .into()
-}
-
 fn idle_state_title(app_language: AppLanguage) -> &'static str {
     match app_language {
         AppLanguage::Chinese => "尚未进行扫描",
@@ -643,27 +757,6 @@ fn localized_local_label(app_language: AppLanguage) -> &'static str {
     }
 }
 
-fn status_badge_untested_label(app_language: AppLanguage) -> &'static str {
-    match app_language {
-        AppLanguage::Chinese => "未检测",
-        AppLanguage::English => "Untested",
-    }
-}
-
-fn status_badge_ready_label(app_language: AppLanguage) -> &'static str {
-    match app_language {
-        AppLanguage::Chinese => "验证成功",
-        AppLanguage::English => "Ready",
-    }
-}
-
-fn status_badge_failed_label(app_language: AppLanguage) -> &'static str {
-    match app_language {
-        AppLanguage::Chinese => "验证失败",
-        AppLanguage::English => "Failed",
-    }
-}
-
 fn status_chip<'a, Message: 'a>(
     visual: PlaceholderVisual,
     label: &'static str,
@@ -737,13 +830,5 @@ fn placeholder_visual_centered<'a, Message: 'a>(
         PlaceholderVisual::RotatingRefresh(frame) => {
             icons::rotating_refresh_centered(frame, slot, size, tone)
         }
-    }
-}
-
-fn device_type_glyph(device_type: DeviceType) -> Glyph {
-    match device_type {
-        DeviceType::Laptop => Glyph::Laptop,
-        DeviceType::Server => Glyph::Server,
-        DeviceType::Desktop => Glyph::Desktop,
     }
 }

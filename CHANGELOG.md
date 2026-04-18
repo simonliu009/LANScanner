@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.6] - 2026-04-18
+
+### Changed
+
+- Reworked scan results into a sortable, monospace table with collapsible extended columns and horizontal scrolling support.
+- Changed the credential panel collapse behavior to a left-right layout so the scan results can use more horizontal space.
+
 ## [0.2.5] - 2026-04-18
 
 ### Fixed

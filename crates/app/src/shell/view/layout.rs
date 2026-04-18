@@ -12,9 +12,9 @@ use crate::message::Message;
 
 use super::super::{ActiveModal, PendingToolAction, ShellApp};
 use super::dropdown_metrics::{
-    CONTENT_PADDING, CONTENT_SPACING, LEFT_COLUMN_SPACING, LEFT_COLUMN_WIDTH, RIGHT_PANEL_PADDING,
-    WINDOW_PADDING, credential_dropdown_left, credential_dropdown_top, credential_dropdown_width,
-    scan_dropdown_left, scan_dropdown_top, scan_dropdown_width,
+    CONTENT_PADDING, CONTENT_SPACING, LEFT_COLUMN_SPACING, RIGHT_PANEL_PADDING, WINDOW_PADDING,
+    credential_dropdown_left, credential_dropdown_top, credential_dropdown_width,
+    left_column_width, scan_dropdown_left, scan_dropdown_top, scan_dropdown_width,
 };
 use super::filters::scan_result_filter_controls;
 use super::header_status::{
@@ -23,16 +23,6 @@ use super::header_status::{
 use super::resize_overlay::window_resize_overlay;
 
 pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
-    let header = ui::titlebar::view(
-        app.theme_mode,
-        app.app_language,
-        app.is_window_maximized,
-        Message::ToggleTheme,
-        Message::OpenHelpModal,
-        Message::ToggleLanguage,
-        Message::WindowAction,
-    );
-
     dropdown::render(
         dropdown::DropdownProps {
             items: &app.credentials,
@@ -42,6 +32,8 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                 title: localized(app.app_language, "用户名", "Username"),
                 subtitle: None,
             },
+            compact_trigger: false,
+            trigger_height: None,
             show_trigger_icon: false,
             show_option_icon: false,
             footer_action: (!app.is_verifying && !app.is_connecting)
@@ -54,7 +46,7 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
             placement: dropdown::DropdownPlacement {
                 left: credential_dropdown_left(),
                 top: credential_dropdown_top(),
-                width: credential_dropdown_width(),
+                width: credential_dropdown_width(app.credential_card_collapsed),
             },
             describe: describe_credential,
             on_selected: |credential: Credential| Message::SelectUser(credential.username),
@@ -73,6 +65,8 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                         ),
                         subtitle: None,
                     },
+                    compact_trigger: true,
+                    trigger_height: Some(ui::scan_card::TOOLBAR_CONTROL_HEIGHT),
                     show_trigger_icon: true,
                     show_option_icon: false,
                     footer_action: None,
@@ -90,23 +84,35 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                     on_selected: |network: NetworkInterface| Message::SelectNetwork(network.id),
                 },
                 |network_dropdown| {
-                    let left_column = column![
-                        ui::scan_card::view(ui::scan_card::ScanCardProps {
-                            app_language: app.app_language,
-                            dropdown: network_dropdown,
-                            selected_network: app.selected_network(),
-                            is_refreshing: app.is_refreshing_networks,
-                            is_scanning: app.is_scanning,
-                            is_blocked: app.is_verifying || app.is_connecting,
-                            spinner_frame: app.spinner_frame(),
-                            on_refresh: Message::RefreshNetworks,
-                            on_start_scan: if app.is_scanning {
-                                Message::CancelScan
-                            } else {
-                                Message::StartScan
-                            },
-                        }),
-                        ui::credential_card::view(ui::credential_card::CredentialCardProps {
+                    let scan_toolbar = ui::scan_card::toolbar_view(ui::scan_card::ScanCardProps {
+                        app_language: app.app_language,
+                        dropdown: network_dropdown,
+                        selected_network: app.selected_network(),
+                        is_refreshing: app.is_refreshing_networks,
+                        is_scanning: app.is_scanning,
+                        is_blocked: app.is_verifying || app.is_connecting,
+                        spinner_frame: app.spinner_frame(),
+                        on_refresh: Message::RefreshNetworks,
+                        on_start_scan: if app.is_scanning {
+                            Message::CancelScan
+                        } else {
+                            Message::StartScan
+                        },
+                    });
+
+                    let header = ui::titlebar::view(
+                        app.theme_mode,
+                        app.app_language,
+                        app.is_window_maximized,
+                        Some(scan_toolbar),
+                        Message::ToggleTheme,
+                        Message::OpenHelpModal,
+                        Message::ToggleLanguage,
+                        Message::WindowAction,
+                    );
+
+                    let left_column = column![ui::credential_card::view(
+                        ui::credential_card::CredentialCardProps {
                             app_language: app.app_language,
                             dropdown: credential_dropdown_affordance(app),
                             is_dark_theme: matches!(app.theme_mode, ThemeMode::Dark),
@@ -130,9 +136,9 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
                             on_password_input: Message::SetPassword,
                             on_vnc_user_input: Message::SetVncUser,
                             on_vnc_password_input: Message::SetVncPassword,
-                        }),
-                    ]
-                    .width(LEFT_COLUMN_WIDTH)
+                        }
+                    )]
+                    .width(left_column_width(app.credential_card_collapsed))
                     .spacing(LEFT_COLUMN_SPACING);
 
                     let result_title_slot: Element<'_, Message> = container(
@@ -402,6 +408,8 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
 fn visual_check_device_list(app: &ShellApp) -> Element<'_, Message> {
     ui::device_list::view(
         &app.devices,
+        &app.online_evidence_by_ip,
+        app.show_extended_result_columns,
         app.selected_device_id.as_deref(),
         app.selected_network()
             .map(|network| network.local_ip.as_str()),

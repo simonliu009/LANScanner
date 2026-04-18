@@ -707,6 +707,10 @@ impl ShellApp {
                 }
                 Task::none()
             }
+            Message::ToggleExtendedResultColumns => {
+                self.show_extended_result_columns = !self.show_extended_result_columns;
+                Task::none()
+            }
             Message::ToggleVnc => update::credential::handle_toggle_vnc(self),
             Message::SetVncUser(value) => update::credential::handle_set_vnc_user(self, value),
             Message::SetVncPassword(value) => {

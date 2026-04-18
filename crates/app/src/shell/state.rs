@@ -221,6 +221,7 @@ pub struct ShellApp {
     pub(super) online_evidence_by_ip: HashMap<String, NeighborEvidence>,
     pub(super) devices: Vec<Device>,
     pub(super) scan_result_filter: ScanResultFilter,
+    pub(super) show_extended_result_columns: bool,
     pub(super) selected_device_id: Option<String>,
     pub(super) has_scanned: bool,
     pub(super) scan_progress: Option<(usize, usize)>,

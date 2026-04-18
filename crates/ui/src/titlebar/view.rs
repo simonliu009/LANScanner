@@ -1,5 +1,5 @@
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Alignment, Element, Fill, Font, Length, Padding, Theme, alignment::Horizontal};
+use iced::{Alignment, Element, Fill, Font, Length, Padding, Theme};
 use platform::window::WindowAction;
 
 use crate::theme::{
@@ -12,9 +12,8 @@ const TITLE_TEXT_SIZE: u32 = 16;
 const TITLE_ROW_SPACING: f32 = 8.0;
 const TITLEBAR_TOOL_SPACING: f32 = icons::TITLEBAR_BUTTON_SPACING + 1.0;
 const TITLEBAR_CONTROL_SPACING: f32 = icons::TITLEBAR_BUTTON_SPACING - 1.0;
+const TITLEBAR_GROUP_SPACING: f32 = 12.0;
 const TITLEBAR_HORIZONTAL_PADDING: f32 = 20.0;
-const TITLEBAR_SIDE_SAFE_INSET: f32 = 0.0;
-const TITLEBAR_SIDE_WIDTH: f32 = icons::TITLEBAR_BUTTON_GROUP_WIDTH - 6.0;
 const TITLEBAR_TOOL_BUTTON_EDGE: f32 = icons::TITLEBAR_TOOL_BUTTON_EDGE;
 const TITLEBAR_TOOL_GLYPH: f32 = 18.0;
 const TITLEBAR_CONTROL_BUTTON_EDGE: f32 = icons::TITLEBAR_CONTROL_BUTTON_EDGE;
@@ -24,6 +23,7 @@ const TITLEBAR_LOGO_EDGE: f32 = icons::TITLEBAR_LOGO_SLOT - 1.0;
 const TITLEBAR_LOGO_GLYPH: f32 = icons::TITLEBAR_LOGO_GLYPH;
 const TITLEBAR_LOGO_RADIUS: f32 = 9.0;
 const TITLEBAR_DIVIDER_HEIGHT: f32 = 1.0;
+const BRAND_SLOT_WIDTH: f32 = 180.0;
 
 #[derive(Clone, Copy)]
 enum ButtonRole {
@@ -36,6 +36,7 @@ pub fn view<'a, Message>(
     theme_mode: ThemeMode,
     app_language: AppLanguage,
     is_maximized: bool,
+    scan_controls: Option<Element<'a, Message>>,
     on_toggle_theme: Message,
     on_help: Message,
     on_toggle_language: Message,
@@ -54,79 +55,99 @@ where
         AppLanguage::Chinese | AppLanguage::English => Glyph::Languages,
     };
 
-    let left_tools = side_slot(
+    let left_brand = container(
         row![
-            icon_button(theme_mode, theme_icon, on_toggle_theme, ButtonRole::Tool),
-            icon_button(theme_mode, Glyph::Help, on_help, ButtonRole::Tool),
-            icon_button(
-                theme_mode,
-                language_icon,
-                on_toggle_language,
-                ButtonRole::Tool,
-            ),
+            logo(),
+            text("LANScanner")
+                .font(title_font())
+                .size(TITLE_TEXT_SIZE)
+                .style(|theme: &Theme| theme::text_primary(theme)),
         ]
-        .spacing(TITLEBAR_TOOL_SPACING)
-        .align_y(Alignment::Center)
-        .into(),
-        false,
-    );
+        .spacing(TITLE_ROW_SPACING)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fixed(BRAND_SLOT_WIDTH))
+    .center_y(Fill);
 
     let center_drag_zone = mouse_area(
         container(
-            row![
-                logo(),
-                text("LANScanner")
-                    .font(title_font())
-                    .size(TITLE_TEXT_SIZE)
-                    .style(|theme: &Theme| theme::text_primary(theme)),
-            ]
-            .spacing(TITLE_ROW_SPACING)
-            .align_y(Alignment::Center),
+            text("")
+                .width(Fill)
+                .height(Fill)
         )
-        .center_x(Fill)
         .center_y(Fill)
-        .width(Fill),
+        .width(Fill)
     )
     .on_press(on_window_action(WindowAction::Drag));
 
-    let right_controls = side_slot(
+    let app_tools = row![
+        icon_button(
+            theme_mode,
+            language_icon,
+            on_toggle_language,
+            ButtonRole::Tool,
+        ),
+        icon_button(theme_mode, theme_icon, on_toggle_theme, ButtonRole::Tool),
+        icon_button(theme_mode, Glyph::Help, on_help, ButtonRole::Tool),
+    ]
+    .spacing(TITLEBAR_TOOL_SPACING)
+    .align_y(Alignment::Center);
+
+    let utility_tools = if let Some(scan_controls) = scan_controls {
+        row![scan_controls, app_tools]
+            .spacing(TITLEBAR_GROUP_SPACING)
+            .align_y(Alignment::Center)
+    } else {
+        row![app_tools].align_y(Alignment::Center)
+    };
+
+    let right_controls = container(
         row![
-            icon_button(
-                theme_mode,
-                Glyph::Minimize,
-                on_window_action(WindowAction::Minimize),
-                ButtonRole::Control,
-            ),
-            icon_button(
-                theme_mode,
-                if is_maximized {
-                    Glyph::Restore
-                } else {
-                    Glyph::Maximize
-                },
-                on_window_action(WindowAction::ToggleMaximize),
-                ButtonRole::Control,
-            ),
-            icon_button(
-                theme_mode,
-                Glyph::Close,
-                on_window_action(WindowAction::Close),
-                ButtonRole::Close,
-            ),
+            utility_tools,
+            row![
+                icon_button(
+                    theme_mode,
+                    Glyph::Minimize,
+                    on_window_action(WindowAction::Minimize),
+                    ButtonRole::Control,
+                ),
+                icon_button(
+                    theme_mode,
+                    if is_maximized {
+                        Glyph::Restore
+                    } else {
+                        Glyph::Maximize
+                    },
+                    on_window_action(WindowAction::ToggleMaximize),
+                    ButtonRole::Control,
+                ),
+                icon_button(
+                    theme_mode,
+                    Glyph::Close,
+                    on_window_action(WindowAction::Close),
+                    ButtonRole::Close,
+                ),
+            ]
+            .spacing(TITLEBAR_CONTROL_SPACING)
+            .align_y(Alignment::Center),
         ]
-        .spacing(TITLEBAR_CONTROL_SPACING)
-        .align_y(Alignment::Center)
-        .into(),
-        true,
-    );
+        .spacing(TITLEBAR_GROUP_SPACING)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Shrink)
+    .height(Length::Shrink)
+    .align_right(Fill)
+    .center_y(Fill);
 
     container(
         column![
             container(
-                row![left_tools, center_drag_zone, right_controls]
+                row![left_brand, center_drag_zone, right_controls]
                     .align_y(Alignment::Center)
+                    .width(Fill)
                     .height(Fill),
             )
+            .width(Fill)
             .height(Fill)
             .padding(Padding {
                 top: 0.0,
@@ -234,39 +255,5 @@ where
         .padding(0)
         .style(style)
         .on_press(message)
-        .into()
-}
-
-fn side_slot<'a, Message>(content: Element<'a, Message>, trailing: bool) -> Element<'a, Message>
-where
-    Message: 'a,
-{
-    let alignment = if trailing {
-        Horizontal::Right
-    } else {
-        Horizontal::Left
-    };
-
-    let padding = if trailing {
-        Padding {
-            top: 0.0,
-            right: TITLEBAR_SIDE_SAFE_INSET,
-            bottom: 0.0,
-            left: 0.0,
-        }
-    } else {
-        Padding {
-            top: 0.0,
-            right: 0.0,
-            bottom: 0.0,
-            left: TITLEBAR_SIDE_SAFE_INSET,
-        }
-    };
-
-    container(content)
-        .width(Length::Fixed(TITLEBAR_SIDE_WIDTH))
-        .padding(padding)
-        .align_x(alignment)
-        .center_y(Fill)
         .into()
 }

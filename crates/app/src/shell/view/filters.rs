@@ -26,6 +26,23 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
                 app.scan_result_filter == ScanResultFilter::SshReady,
                 Message::ShowSshReadyResults
             ),
+            scan_result_filter_button(
+                localized(
+                    app.app_language,
+                    if app.show_extended_result_columns {
+                        "收起列"
+                    } else {
+                        "更多列"
+                    },
+                    if app.show_extended_result_columns {
+                        "Less Columns"
+                    } else {
+                        "More Columns"
+                    },
+                ),
+                app.show_extended_result_columns,
+                Message::ToggleExtendedResultColumns,
+            ),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -96,7 +113,7 @@ fn scan_result_filter_button<'a>(
             shadow: iced::Shadow::default(),
         }
     })
-    .on_press_maybe((!is_active).then_some(message))
+    .on_press(message)
     .into()
 }
 

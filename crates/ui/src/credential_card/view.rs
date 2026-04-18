@@ -7,6 +7,7 @@ use crate::theme::{
 };
 
 pub const CARD_PADDING: u16 = 20;
+pub const COLLAPSED_COLUMN_WIDTH: f32 = 22.0;
 pub const SECTION_SPACING: u16 = 10;
 pub const FIELD_SPACING: u16 = 9;
 pub const HEADER_HEIGHT: f32 = 28.0;
@@ -27,6 +28,8 @@ const MANAGE_BUTTON_ICON_SLOT: f32 = 16.0;
 const MANAGE_BUTTON_ICON_SIZE: f32 = 14.0;
 const MANAGE_BUTTON_CONTENT_SPACING: f32 = 6.0;
 const MANAGE_BUTTON_RIGHT_INSET: f32 = 2.0;
+const COLLAPSE_BUTTON_EDGE: f32 = 24.0;
+const COLLAPSE_BUTTON_ICON_SIZE: f32 = 12.0;
 const SECTION_TITLE_HEIGHT: f32 = 24.0;
 const RUSTDESK_SECTION_SPACING: f32 = 9.0;
 const SECTION_DIVIDER_PADDING: u16 = 8;
@@ -159,7 +162,7 @@ where
             Space::new().width(Length::Fill),
             row![
                 manage_button(app_language, on_manage),
-                collapse_button(app_language, collapsed, on_toggle_collapse),
+                collapse_button(app_language, collapsed, on_toggle_collapse.clone()),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -169,10 +172,11 @@ where
     .height(Length::Fixed(HEADER_HEIGHT));
 
     if collapsed {
-        return container(header)
-            .width(Fill)
-            .padding(CARD_PADDING)
-            .style(theme::styles::card)
+        return container(collapsed_card(app_language, on_toggle_collapse))
+            .width(Length::Fixed(COLLAPSED_COLUMN_WIDTH))
+            .height(Fill)
+            .padding([0.0, 0.0])
+            .style(collapsed_column_style)
             .into();
     }
 
@@ -308,41 +312,21 @@ where
 }
 
 fn collapse_button<'a, Message>(
-    app_language: AppLanguage,
+    _app_language: AppLanguage,
     collapsed: bool,
     on_press: Option<Message>,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
-    let glyph = if collapsed {
-        Glyph::ChevronDown
-    } else {
-        Glyph::ChevronUp
-    };
-    let label = match app_language {
-        AppLanguage::Chinese if collapsed => "展开",
-        AppLanguage::Chinese => "收起",
-        AppLanguage::English if collapsed => "Expand",
-        AppLanguage::English => "Collapse",
-    };
+    let label = if collapsed { ">" } else { "<" };
 
-    button(
-        row![
-            text(label)
-                .size(11)
-                .style(|theme: &Theme| theme::text_muted(theme)),
-            icons::themed_centered(
-                glyph,
-                MANAGE_BUTTON_ICON_SLOT,
-                MANAGE_BUTTON_ICON_SIZE,
-                muted_text_color,
-            ),
-        ]
-        .spacing(5)
-        .align_y(Alignment::Center),
-    )
-    .padding([4, 8])
+    button(text(label).size(COLLAPSE_BUTTON_ICON_SIZE).style(|theme: &Theme| {
+        theme::solid_text(muted_text_color(theme))
+    }))
+    .width(Length::Fixed(COLLAPSE_BUTTON_EDGE))
+    .height(Length::Fixed(COLLAPSE_BUTTON_EDGE))
+    .padding(0)
     .style(|theme: &Theme, status| {
         let palette = colors::palette(theme);
         let is_dark = palette.card == colors::DARK.card;
@@ -369,15 +353,67 @@ where
             background: Some(iced::Background::Color(background)),
             text_color: palette.muted_text,
             border: iced::Border {
-                color: iced::Color::TRANSPARENT,
-                width: 0.0,
-                radius: border::radius(10),
+                color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    if is_dark {
+                        colors::rgba(0xFF, 0xFF, 0xFF, 0.08)
+                    } else {
+                        colors::rgba(0xD1, 0xD5, 0xDB, 0.7)
+                    }
+                } else {
+                    iced::Color::TRANSPARENT
+                },
+                width: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    1.0
+                } else {
+                    0.0
+                },
+                radius: border::radius(999),
             },
             shadow: iced::Shadow::default(),
         }
     })
     .on_press_maybe(on_press)
     .into()
+}
+
+fn collapsed_card<'a, Message>(
+    _app_language: AppLanguage,
+    on_toggle_collapse: Option<Message>,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    container(collapse_button(
+        AppLanguage::English,
+        true,
+        on_toggle_collapse,
+    ))
+    .width(Fill)
+    .height(Fill)
+    .center_x(Fill)
+    .center_y(Fill)
+    .into()
+}
+
+fn collapsed_column_style(theme: &Theme) -> container::Style {
+    let palette = colors::palette(theme);
+    let is_dark = palette.card == colors::DARK.card;
+
+    container::Style::default()
+        .background(if is_dark {
+            colors::rgba(0xFF, 0xFF, 0xFF, 0.03)
+        } else {
+            colors::rgba(0xF3, 0xF4, 0xF6, 0.88)
+        })
+        .border(iced::Border {
+            color: if is_dark {
+                colors::rgba(0xFF, 0xFF, 0xFF, 0.06)
+            } else {
+                colors::rgba(0xD1, 0xD5, 0xDB, 0.8)
+            },
+            width: 1.0,
+            radius: border::radius(12),
+        })
 }
 
 fn manage_button_idle_tone(theme: &Theme) -> iced::Color {

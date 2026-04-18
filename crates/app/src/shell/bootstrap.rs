@@ -65,6 +65,7 @@ impl ShellApp {
             online_evidence_by_ip: HashMap::new(),
             devices: Vec::new(),
             scan_result_filter: ScanResultFilter::AllOnline,
+            show_extended_result_columns: false,
             selected_device_id: None,
             has_scanned: false,
             scan_progress: None,

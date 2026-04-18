@@ -68,6 +68,7 @@ pub enum Message {
     ToggleCredentialCardCollapse,
     ShowAllOnlineResults,
     ShowSshReadyResults,
+    ToggleExtendedResultColumns,
     ToggleVnc,
     SetVncUser(String),
     SetVncPassword(String),
