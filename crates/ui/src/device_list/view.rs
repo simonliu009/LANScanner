@@ -65,19 +65,23 @@ where
     }
 
     let header = device_table_header(app_language, show_extended_columns);
-    let items = devices.iter().fold(
+    let mut ordered_devices = devices.iter().collect::<Vec<_>>();
+    ordered_devices.sort_by_key(|device| local_ip != Some(device.ip.as_str()));
+
+    let items = ordered_devices.into_iter().fold(
         column!().spacing(2).padding([LIST_OUTER_PADDING_Y, LIST_OUTER_PADDING_X]),
         |column, device| {
             let is_selected = selected_device_id == Some(device.id.as_str());
             let is_local = local_ip == Some(device.ip.as_str());
+            let is_emphasized = is_selected || is_local;
             let select_message = on_select(device.id.clone());
             let evidence = evidence_by_ip.get(device.ip.as_str());
             let item = button(
                 row![
-                    device_name_cell(device, is_selected, is_local, app_language),
-                    device_ip_cell(&device.ip, is_selected, is_local),
-                    extended_cells(evidence, is_selected, show_extended_columns),
-                    device_type_cell(device.device_type, app_language, is_selected),
+                    device_name_cell(device, is_emphasized, is_local, app_language),
+                    device_ip_cell(&device.ip, is_emphasized),
+                    extended_cells(evidence, is_emphasized, show_extended_columns),
+                    device_type_cell(device.device_type, app_language, is_emphasized),
                     device_status_cell(device.status, app_language),
                 ]
                 .spacing(COLUMN_GAP)
@@ -90,17 +94,11 @@ where
                 let palette = colors::palette(theme);
                 let is_dark = palette.card == colors::DARK.card;
 
-                let background = if is_selected {
+                let background = if is_selected || is_local {
                     if is_dark {
                         colors::DARK_SELECTION
                     } else {
                         colors::LIGHT_SELECTION
-                    }
-                } else if is_local {
-                    if is_dark {
-                        colors::rgba(0x3B, 0x82, 0xF6, 0.10)
-                    } else {
-                        colors::rgba(0x3B, 0x82, 0xF6, 0.06)
                     }
                 } else {
                     match status {
@@ -120,17 +118,11 @@ where
                     background: Some(iced::Background::Color(background)),
                     text_color: palette.text,
                     border: iced::Border {
-                        color: if is_selected {
+                        color: if is_selected || is_local {
                             if is_dark {
                                 colors::rgba(0x3B, 0x82, 0xF6, 0.4)
                             } else {
                                 colors::rgba(0x3B, 0x82, 0xF6, 0.2)
-                            }
-                        } else if is_local {
-                            if is_dark {
-                                colors::rgba(0x3B, 0x82, 0xF6, 0.28)
-                            } else {
-                                colors::rgba(0x3B, 0x82, 0xF6, 0.18)
                             }
                         } else {
                             iced::Color::TRANSPARENT
@@ -255,7 +247,7 @@ where
 
 fn device_name_cell<'a, Message>(
     device: &'a Device,
-    is_selected: bool,
+    is_emphasized: bool,
     is_local: bool,
     app_language: AppLanguage,
 ) -> Element<'a, Message>
@@ -269,7 +261,7 @@ where
             .style(move |theme: &Theme| {
                 let palette = colors::palette(theme);
 
-                if is_selected {
+                if is_emphasized {
                     theme::solid_text(palette.primary)
                 } else {
                     theme::text_primary(theme)
@@ -283,8 +275,7 @@ where
 
 fn device_ip_cell<'a, Message>(
     ip: &'a str,
-    selected: bool,
-    is_local: bool,
+    is_emphasized: bool,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -294,7 +285,7 @@ where
             .font(fonts::monospace())
             .size(TABLE_TEXT_SIZE)
             .style(move |theme: &Theme| {
-                if selected || is_local {
+                if is_emphasized {
                     theme::solid_text(colors::rgb(0x1D, 0x4E, 0x89))
                 } else {
                     theme::text_muted(theme)

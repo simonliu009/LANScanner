@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7] - 2026-04-18
+
+### Changed
+
+- Pinned the local device to the top of the scan results table and applied full-row highlighting instead of partial emphasis.
+
 ## [0.2.6] - 2026-04-18
 
 ### Changed
