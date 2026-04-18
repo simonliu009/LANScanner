@@ -707,10 +707,6 @@ impl ShellApp {
                 }
                 Task::none()
             }
-            Message::ToggleResultColumnSelector => {
-                self.result_column_selector_open = !self.result_column_selector_open;
-                Task::none()
-            }
             Message::SetResultColumnVisible(column, visible) => {
                 self.result_column_visibility.set_visible(column, visible);
                 Task::none()

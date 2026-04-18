@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.10] - 2026-04-18
+
+### Changed
+
+- Reworked the scan result column controls into a two-row header layout with the filter buttons grouped on the left and the optional column checkboxes shown persistently on the right.
+- Removed the old column-selector toggle flow and updated the result header sizing so the full checkbox area stays visible.
+- Enlarged the credential sidebar collapse button and adjusted its alignment so it sits vertically centered within the header row.
+
 ## [0.2.9] - 2026-04-18
 
 ### Changed

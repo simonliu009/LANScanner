@@ -168,13 +168,13 @@ pub(super) fn view(app: &ShellApp) -> Element<'_, Message> {
 
                     let result_filter_controls = scan_result_filter_controls(app);
                     let result_filter_slot = container(result_filter_controls)
+                        .width(Fill)
                         .height(Length::Fixed(RESULT_HEADER_FILTER_SLOT_HEIGHT))
                         .center_y(Length::Fixed(RESULT_HEADER_FILTER_SLOT_HEIGHT));
                     let header_row = row![
                         result_title_slot,
                         Space::new().width(Length::Fixed(14.0)),
                         result_filter_slot,
-                        Space::new().width(Fill),
                         status_strip_slot,
                     ]
                     .spacing(8)

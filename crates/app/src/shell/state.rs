@@ -222,7 +222,6 @@ pub struct ShellApp {
     pub(super) online_evidence_by_ip: HashMap<String, NeighborEvidence>,
     pub(super) devices: Vec<Device>,
     pub(super) scan_result_filter: ScanResultFilter,
-    pub(super) result_column_selector_open: bool,
     pub(super) result_column_visibility: ResultColumnVisibility,
     pub(super) selected_device_id: Option<String>,
     pub(super) has_scanned: bool,

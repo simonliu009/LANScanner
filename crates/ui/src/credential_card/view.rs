@@ -28,8 +28,8 @@ const MANAGE_BUTTON_ICON_SLOT: f32 = 16.0;
 const MANAGE_BUTTON_ICON_SIZE: f32 = 14.0;
 const MANAGE_BUTTON_CONTENT_SPACING: f32 = 6.0;
 const MANAGE_BUTTON_RIGHT_INSET: f32 = 2.0;
-const COLLAPSE_BUTTON_EDGE: f32 = 24.0;
-const COLLAPSE_BUTTON_ICON_SIZE: f32 = 12.0;
+const COLLAPSE_BUTTON_EDGE: f32 = 30.0;
+const COLLAPSE_BUTTON_ICON_SIZE: f32 = 15.0;
 const SECTION_TITLE_HEIGHT: f32 = 24.0;
 const RUSTDESK_SECTION_SPACING: f32 = 9.0;
 const SECTION_DIVIDER_PADDING: u16 = 8;
@@ -321,9 +321,17 @@ where
 {
     let label = if collapsed { ">" } else { "<" };
 
-    button(text(label).size(COLLAPSE_BUTTON_ICON_SIZE).style(|theme: &Theme| {
-        theme::solid_text(muted_text_color(theme))
-    }))
+    button(
+        container(
+            text(label)
+                .size(COLLAPSE_BUTTON_ICON_SIZE)
+                .style(|theme: &Theme| theme::solid_text(muted_text_color(theme))),
+        )
+        .width(Length::Fixed(COLLAPSE_BUTTON_EDGE))
+        .height(Length::Fixed(COLLAPSE_BUTTON_EDGE))
+        .center_x(Length::Fixed(COLLAPSE_BUTTON_EDGE))
+        .center_y(Length::Fixed(COLLAPSE_BUTTON_EDGE)),
+    )
     .width(Length::Fixed(COLLAPSE_BUTTON_EDGE))
     .height(Length::Fixed(COLLAPSE_BUTTON_EDGE))
     .padding(0)

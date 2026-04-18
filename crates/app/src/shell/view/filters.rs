@@ -1,4 +1,4 @@
-use iced::widget::{Space, button, checkbox, column, container, row, scrollable, text};
+use iced::widget::{Space, button, checkbox, column, container, row, text};
 use iced::{Alignment, Element, Length, Theme, border};
 use ui::device_list::ResultColumn;
 use ui::theme::{self, AppLanguage, colors};
@@ -6,6 +6,8 @@ use ui::theme::{self, AppLanguage, colors};
 use crate::message::Message;
 
 use super::super::{ScanResultFilter, ShellApp};
+
+const FILTER_BUTTON_CELL_WIDTH: f32 = 128.0;
 
 pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message> {
     if !app.has_scanned {
@@ -16,46 +18,14 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
     }
 
     let controls = row![
-        scan_result_filter_button(
-            localized(app.app_language, "全部在线", "All Online"),
-            app.scan_result_filter == ScanResultFilter::AllOnline,
-            Message::ShowAllOnlineResults
-        ),
-        scan_result_filter_button(
-            localized(app.app_language, "SSH", "SSH"),
-            app.scan_result_filter == ScanResultFilter::SshReady,
-            Message::ShowSshReadyResults
-        ),
-        scan_result_filter_button(
-            localized(
-                app.app_language,
-                if app.result_column_visibility.has_any_optional_column() {
-                    "列"
-                } else {
-                    "选择列"
-                },
-                if app.result_column_visibility.has_any_optional_column() {
-                    "Columns"
-                } else {
-                    "Choose Columns"
-                },
-            ),
-            app.result_column_selector_open || app.result_column_visibility.has_any_optional_column(),
-            Message::ToggleResultColumnSelector,
-        ),
+        filter_button_cell(app),
+        result_column_grid(app),
     ]
-    .spacing(6)
+    .spacing(10)
     .align_y(Alignment::Center);
 
-    let content = if app.result_column_selector_open {
-        column![controls, result_column_selector(app)]
-            .spacing(8)
-            .align_x(Alignment::End)
-    } else {
-        column![controls].spacing(0).align_x(Alignment::End)
-    };
-
-    container(content)
+    container(controls)
+    .width(Length::Fill)
     .padding([3, 4])
     .style(|theme: &Theme| {
         let palette = colors::palette(theme);
@@ -70,61 +40,65 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
     .into()
 }
 
-fn result_column_selector(app: &ShellApp) -> Element<'_, Message> {
+fn filter_button_cell(app: &ShellApp) -> Element<'_, Message> {
+    container(
+        column![
+            scan_result_filter_button(
+                localized(app.app_language, "全部在线", "All Online"),
+                app.scan_result_filter == ScanResultFilter::AllOnline,
+                Message::ShowAllOnlineResults
+            ),
+            scan_result_filter_button(
+                localized(app.app_language, "SSH", "SSH"),
+                app.scan_result_filter == ScanResultFilter::SshReady,
+                Message::ShowSshReadyResults
+            ),
+        ]
+        .spacing(6)
+        .align_x(Alignment::Center),
+    )
+    .width(Length::Fixed(FILTER_BUTTON_CELL_WIDTH))
+    .center_y(Length::Shrink)
+    .into()
+}
+
+fn result_column_grid(app: &ShellApp) -> Element<'_, Message> {
     let visibility = app.result_column_visibility;
-    let entries = [
+    let first_row = [
         (ResultColumn::MacAddress, visibility.mac_address),
         (ResultColumn::Hostname, visibility.hostname),
         (ResultColumn::Vendor, visibility.vendor),
         (ResultColumn::DnsName, visibility.dns_name),
+    ];
+    let second_row = [
         (ResultColumn::MdnsName, visibility.mdns_name),
         (ResultColumn::SmbName, visibility.smb_name),
         (ResultColumn::SmbDomain, visibility.smb_domain),
     ];
 
-    let selector_row = entries.into_iter().fold(
-        row!().spacing(14).align_y(Alignment::Center),
-        |row, (result_column, is_checked)| {
-            row.push(column_toggle(app.app_language, result_column, is_checked))
-        },
-    );
-
-    let selector = column![
-        selector_hint(app.app_language),
-        scrollable(selector_row)
-            .direction(scrollable::Direction::Horizontal(
-                scrollable::Scrollbar::default(),
-            ))
-            .width(Length::Fill)
-    ]
-    .spacing(6)
-    .width(Length::Fill);
-
-    container(selector)
-        .padding([8, 10])
-        .width(Length::Fill)
-        .style(|theme: &Theme| {
-            let palette = colors::palette(theme);
-            container::Style::default()
-                .background(palette.card)
-                .border(iced::Border {
-                    color: palette.border,
-                    width: 1.0,
-                    radius: border::radius(12),
-                })
-        })
-        .into()
+    container(
+        column![
+            checkbox_row(app.app_language, first_row),
+            checkbox_row(app.app_language, second_row),
+        ]
+        .spacing(6)
+        .align_x(Alignment::Start),
+    )
+    .width(Length::Fill)
+    .center_y(Length::Shrink)
+    .into()
 }
 
-fn selector_hint(language: AppLanguage) -> Element<'static, Message> {
-    text(localized(
-        language,
-        "勾选需要显示的列",
-        "Check columns to show",
-    ))
-    .size(11)
-    .style(|theme: &Theme| theme::text_muted(theme))
-    .into()
+fn checkbox_row<const N: usize>(
+    language: AppLanguage,
+    entries: [(ResultColumn, bool); N],
+) -> Element<'static, Message> {
+    entries
+        .into_iter()
+        .fold(row!().spacing(10).align_y(Alignment::Center), |row, entry| {
+            row.push(column_toggle(language, entry.0, entry.1))
+        })
+        .into()
 }
 
 fn column_toggle(
