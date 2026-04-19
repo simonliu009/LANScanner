@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.16] - 2026-04-19
+
+### Added
+
+- Added a macOS native network helper scaffold with Big Sur-compatible Swift package settings, command contracts, and provider split for interface and neighbor snapshots.
+- Added helper-aware macOS backend parsing in the platform layer so interface discovery and neighbor evidence can prefer native helper output before falling back to shell commands.
+- Updated the macOS GitHub Actions build to compile the Swift helper, bundle it into the app package, and keep the release artifact aligned with the desktop app build.
+
 ## [0.2.15] - 2026-04-19
 
 ### Fixed

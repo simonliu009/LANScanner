@@ -56,6 +56,7 @@ jobs:
       - name: Print environment info
         run: |
           echo "Rust: $(rustc --version)"
+          echo "Swift: $(swift --version)"
           echo "OS:   $(sw_vers -productName) $(sw_vers -productVersion)"
           echo "Arch: $(uname -m)"
           echo "Xcode: $(xcode-select -p)"
@@ -71,7 +72,25 @@ jobs:
           key: macos-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: macos-${{ matrix.target }}-
 
-      # ---- 4. 编译 ----
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.swiftpm
+            tools/macos-arp-helper/.build
+          key: swiftpm-${{ matrix.target }}-${{ hashFiles('tools/macos-arp-helper/Package.swift') }}
+          restore-keys: swiftpm-${{ matrix.target }}-
+
+      # ---- 4. 编译 Swift helper ----
+      - name: Build macOS helper
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          cd tools/macos-arp-helper
+          swift build -c release
+          test -x .build/release/lanscanner-macos-arp-helper
+
+      # ---- 5. 编译 ----
       - name: Build LANScanner
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -81,12 +100,13 @@ jobs:
             --target ${{ matrix.target }} \
             -p lanscanner-app
 
-      # ---- 5. 打包 .app ----
+      # ---- 6. 打包 .app ----
       - name: Create .app bundle
         run: |
           set -euo pipefail
 
           BIN="target/${{ matrix.target }}/release/LANScanner"
+          HELPER="tools/macos-arp-helper/.build/release/lanscanner-macos-arp-helper"
           OUT="release/macos/LANScanner.app"
           RES="target/_macos_res"
 
@@ -142,8 +162,11 @@ jobs:
           rm -rf "$OUT"
           mkdir -p "$OUT/Contents/MacOS"
           mkdir -p "$OUT/Contents/Resources"
+          mkdir -p "$OUT/Contents/Helpers"
           cp "$BIN" "$OUT/Contents/MacOS/LANScanner"
+          cp "$HELPER" "$OUT/Contents/Helpers/lanscanner-macos-arp-helper"
           chmod +x "$OUT/Contents/MacOS/LANScanner"
+          chmod +x "$OUT/Contents/Helpers/lanscanner-macos-arp-helper"
 
           iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/LANScanner.icns" 2>/dev/null || true
 
@@ -179,13 +202,13 @@ jobs:
           echo "=== .app bundle ==="
           find "$OUT" -type f | head -20
 
-      # ---- 6. 压缩 ----
+      # ---- 7. 压缩 ----
       - name: Zip artifact
         run: |
           cd release/macos
           zip -r -9 "../../LANScanner-macos-${{ matrix.suffix }}.zip" LANScanner.app
 
-      # ---- 7. 上传 ----
+      # ---- 8. 上传 ----
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

@@ -95,6 +95,11 @@ pub(super) fn parse_unix_neighbor_row(line: &str) -> Option<NeighborEvidenceRow>
 
 #[cfg(target_os = "macos")]
 pub(super) async fn collect_macos_neighbor_rows() -> Vec<NeighborEvidenceRow> {
+    let helper_rows = super::macos_backend::collect_neighbor_rows_with_native_helper().await;
+    if !helper_rows.is_empty() {
+        return helper_rows;
+    }
+
     let rows =
         collect_neighbor_rows_with_command("arp", &["-a", "-n"], parse_arp_neighbor_row).await;
     if !rows.is_empty() {
@@ -178,13 +183,13 @@ fn is_unusable_neighbor_state(state: &str) -> bool {
         || lower.contains("invalid")
 }
 
-fn is_valid_neighbor_ip(ip: &str) -> bool {
+pub(super) fn is_valid_neighbor_ip(ip: &str) -> bool {
     ip.parse::<Ipv4Addr>()
         .ok()
         .is_some_and(|addr| !addr.is_loopback() && !addr.is_link_local() && !addr.is_unspecified())
 }
 
-fn normalize_neighbor_mac(raw: &str) -> Option<String> {
+pub(super) fn normalize_neighbor_mac(raw: &str) -> Option<String> {
     let hex = raw
         .chars()
         .filter(|ch| ch.is_ascii_hexdigit())
@@ -211,7 +216,7 @@ fn normalize_neighbor_mac(raw: &str) -> Option<String> {
     target_os = "macos",
     all(unix, not(target_os = "windows"), not(target_os = "macos"))
 ))]
-fn trim_neighbor_hostname(host: &str) -> Option<&str> {
+pub(super) fn trim_neighbor_hostname(host: &str) -> Option<&str> {
     let host = host.trim().trim_matches('?').trim_matches('"').trim();
     if host.is_empty() || host.chars().any(char::is_control) {
         return None;

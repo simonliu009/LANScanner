@@ -16,6 +16,7 @@ use crate::process;
 #[cfg(target_os = "windows")]
 use std::sync::{Mutex, OnceLock};
 
+mod macos_backend;
 mod neighbor_cache;
 mod neighbor_rows;
 
@@ -786,6 +787,15 @@ fn looks_like_utf16le(bytes: &[u8]) -> bool {
 
 #[cfg(not(target_os = "windows"))]
 async fn detect_unix_like_interfaces() -> Vec<NetworkInterface> {
+    #[cfg(target_os = "macos")]
+    {
+        let interfaces = macos_backend::collect_interfaces_with_native_helper().await;
+        let interfaces = dedupe_interfaces(interfaces);
+        if !interfaces.is_empty() {
+            return interfaces;
+        }
+    }
+
     let mut interfaces = collect_unix_interfaces_from_ip().await;
     if interfaces.is_empty() {
         interfaces = collect_unix_interfaces_from_ifconfig().await;
