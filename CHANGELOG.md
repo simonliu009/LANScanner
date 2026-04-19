@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.17] - 2026-04-19
+
+### Fixed
+
+- Fixed the macOS helper Swift package entrypoint so GitHub Actions can build the helper with SwiftPM without the `@main` module conflict.
+- Fixed the SystemConfiguration dictionary bridge in the helper interface snapshot path so the macOS production build no longer fails on `CFPropertyList` conversion.
+- Promoted the CI-passing macOS helper build fixes into a new release version instead of reusing the older `v0.2.16` tag.
+
 ## [0.2.16] - 2026-04-19
 
 ### Added
