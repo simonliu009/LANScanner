@@ -92,7 +92,9 @@ enum InterfaceSnapshotProvider {
             return nil
         }
 
-        let dictionary = value as NSDictionary
+        guard let dictionary = value as? [String: Any] else {
+            return nil
+        }
         return dictionary["PrimaryInterface"] as? String
     }
 
