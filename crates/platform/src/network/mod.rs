@@ -9,6 +9,7 @@ use std::time::Duration;
 use ssh_core::network::{self, InterfaceType, NetworkDetector, NetworkInterface};
 use ssh_core::scanner::NeighborEvidence;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 
 #[cfg(target_os = "windows")]
 use crate::process;
@@ -102,6 +103,22 @@ pub async fn discover_online_neighbor_candidates(
     local_ip: &str,
     subnet: &str,
 ) -> Vec<NeighborCandidate> {
+    discover_online_neighbor_candidates_with_stream(local_ip, subnet, None).await
+}
+
+pub async fn discover_online_neighbor_candidates_streaming(
+    local_ip: &str,
+    subnet: &str,
+    stream_tx: mpsc::UnboundedSender<NeighborCandidate>,
+) -> Vec<NeighborCandidate> {
+    discover_online_neighbor_candidates_with_stream(local_ip, subnet, Some(stream_tx)).await
+}
+
+async fn discover_online_neighbor_candidates_with_stream(
+    local_ip: &str,
+    subnet: &str,
+    stream_tx: Option<mpsc::UnboundedSender<NeighborCandidate>>,
+) -> Vec<NeighborCandidate> {
     let Some(local_ip_addr) = parse_neighbor_candidate_ip(local_ip) else {
         remove_neighbor_candidate_cache(local_ip, subnet);
         return Vec::new();
@@ -125,22 +142,27 @@ pub async fn discover_online_neighbor_candidates(
             subnet_cidr,
         );
     }
+    stream_neighbor_candidates(&stream_tx, &candidates);
 
     let mut synthetic_candidates =
-        active_scan_fallback_candidates(local_ip_addr, subnet_cidr).await;
+        active_scan_fallback_candidates(local_ip_addr, subnet_cidr, stream_tx.clone()).await;
     if let Some(gateway_ip) = discover_default_gateway_ip().await
         && gateway_ip != local_ip_addr
         && subnet_cidr.contains_host(gateway_ip)
     {
-        synthetic_candidates.push(NeighborCandidate {
+        let gateway_candidate = NeighborCandidate {
             ip: gateway_ip.to_string(),
             evidence: NeighborEvidence::default(),
-        });
+        };
+        stream_neighbor_candidate(&stream_tx, gateway_candidate.clone());
+        synthetic_candidates.push(gateway_candidate);
     }
-    synthetic_candidates.push(NeighborCandidate {
+    let local_candidate = NeighborCandidate {
         ip: local_ip_addr.to_string(),
         evidence: NeighborEvidence::default(),
-    });
+    };
+    stream_neighbor_candidate(&stream_tx, local_candidate.clone());
+    synthetic_candidates.push(local_candidate);
     candidates.extend(synthetic_candidates);
     candidates = refresh_neighbor_candidates_after_priming(
         candidates,
@@ -160,6 +182,24 @@ pub async fn discover_online_neighbor_candidates(
         .collect::<Vec<_>>();
     let _ = write_neighbor_candidate_cache(local_ip, subnet, &candidates);
     candidates
+}
+
+fn stream_neighbor_candidates(
+    stream_tx: &Option<mpsc::UnboundedSender<NeighborCandidate>>,
+    candidates: &[NeighborCandidate],
+) {
+    for candidate in candidates {
+        stream_neighbor_candidate(stream_tx, candidate.clone());
+    }
+}
+
+fn stream_neighbor_candidate(
+    stream_tx: &Option<mpsc::UnboundedSender<NeighborCandidate>>,
+    candidate: NeighborCandidate,
+) {
+    if let Some(stream_tx) = stream_tx {
+        let _ = stream_tx.send(candidate);
+    }
 }
 
 pub async fn discover_online_neighbor_dataset(
@@ -1534,8 +1574,9 @@ fn compare_neighbor_candidate_ip(left: &str, right: &str) -> Ordering {
 async fn active_scan_fallback_candidates(
     local_ip: Ipv4Addr,
     subnet: Ipv4Subnet,
+    stream_tx: Option<mpsc::UnboundedSender<NeighborCandidate>>,
 ) -> Vec<NeighborCandidate> {
-    let active_hosts = scan_active_hosts(local_ip, subnet).await;
+    let active_hosts = scan_active_hosts(local_ip, subnet, stream_tx).await;
     active_hosts
         .into_iter()
         .map(|ip| NeighborCandidate {
@@ -1582,7 +1623,11 @@ const ACTIVE_DISCOVERY_TIMEOUT_MS: u64 = 250;
 const ACTIVE_DISCOVERY_CONCURRENCY: usize = 128;
 const ACTIVE_DISCOVERY_MAX_HOSTS: usize = 1024;
 
-async fn scan_active_hosts(local_ip: Ipv4Addr, subnet: Ipv4Subnet) -> Vec<Ipv4Addr> {
+async fn scan_active_hosts(
+    local_ip: Ipv4Addr,
+    subnet: Ipv4Subnet,
+    stream_tx: Option<mpsc::UnboundedSender<NeighborCandidate>>,
+) -> Vec<Ipv4Addr> {
     let Some((start, end)) = subnet.host_range() else {
         return Vec::new();
     };
@@ -1613,12 +1658,26 @@ async fn scan_active_hosts(local_ip: Ipv4Addr, subnet: Ipv4Subnet) -> Vec<Ipv4Ad
             && let Some(result) = join_set.join_next().await
             && let Ok(Some(ip)) = result
         {
+            stream_neighbor_candidate(
+                &stream_tx,
+                NeighborCandidate {
+                    ip: ip.to_string(),
+                    evidence: NeighborEvidence::default(),
+                },
+            );
             active_hosts.push(ip);
         }
     }
 
     while let Some(result) = join_set.join_next().await {
         if let Ok(Some(ip)) = result {
+            stream_neighbor_candidate(
+                &stream_tx,
+                NeighborCandidate {
+                    ip: ip.to_string(),
+                    evidence: NeighborEvidence::default(),
+                },
+            );
             active_hosts.push(ip);
         }
     }

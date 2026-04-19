@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use iced::Task;
 use ssh_core::scanner::{
     Device, DeviceStatus, LayeredScanDevice, NeighborEvidence, SshPortProbeStatus, TcpProbeReport,
-    build_layered_scan_devices_from_probe_report, compare_devices_by_ip, sort_devices_by_ip,
+    build_layered_scan_devices_from_probe_report, compare_devices_by_ip,
+    device_from_identity_evidence, sort_devices_by_ip,
 };
 use tokio_util::sync::CancellationToken;
 use ui::theme::AppLanguage;
@@ -70,7 +71,8 @@ pub(super) fn handle_scan_online_dataset_ready(
     if !is_current_scan_session(app, session_id) {
         return Task::none();
     }
-    app.online_evidence_by_ip = evidence_by_ip;
+    merge_online_evidence(app, evidence_by_ip);
+    refresh_online_device_identity(app);
     Task::none()
 }
 
@@ -389,6 +391,57 @@ pub(super) fn replace_online_devices(app: &mut ShellApp, mut devices: Vec<Layere
     }
     devices.sort_by(|left, right| compare_devices_by_ip(&left.device, &right.device));
     app.online_devices = devices;
+    rebuild_visible_devices_from_online(app);
+}
+
+fn merge_online_evidence(app: &mut ShellApp, evidence_by_ip: HashMap<String, NeighborEvidence>) {
+    for (ip, incoming) in evidence_by_ip {
+        if let Some(current) = app.online_evidence_by_ip.get_mut(ip.as_str()) {
+            merge_neighbor_evidence(current, incoming);
+        } else {
+            app.online_evidence_by_ip.insert(ip, incoming);
+        }
+    }
+}
+
+fn merge_neighbor_evidence(current: &mut NeighborEvidence, incoming: NeighborEvidence) {
+    if current.mac_address.is_none() && incoming.mac_address.is_some() {
+        current.mac_address = incoming.mac_address;
+    }
+    if current.hostname.is_none() && incoming.hostname.is_some() {
+        current.hostname = incoming.hostname;
+    }
+    if current.mdns_name.is_none() && incoming.mdns_name.is_some() {
+        current.mdns_name = incoming.mdns_name;
+    }
+    if current.dns_name.is_none() && incoming.dns_name.is_some() {
+        current.dns_name = incoming.dns_name;
+    }
+    if current.smb_name.is_none() && incoming.smb_name.is_some() {
+        current.smb_name = incoming.smb_name;
+    }
+    if current.smb_domain.is_none() && incoming.smb_domain.is_some() {
+        current.smb_domain = incoming.smb_domain;
+    }
+}
+
+fn refresh_online_device_identity(app: &mut ShellApp) {
+    let previous_status_by_ip = app
+        .online_devices
+        .iter()
+        .map(|layered| (layered.device.ip.clone(), layered.device.status))
+        .collect::<HashMap<_, _>>();
+
+    for layered in &mut app.online_devices {
+        let ip = layered.device.ip.clone();
+        let mut refreshed =
+            device_from_identity_evidence(ip.clone(), app.online_evidence_by_ip.get(ip.as_str()));
+        if let Some(status) = previous_status_by_ip.get(ip.as_str()) {
+            refreshed.status = *status;
+        }
+        layered.device = refreshed;
+    }
+
     rebuild_visible_devices_from_online(app);
 }
 

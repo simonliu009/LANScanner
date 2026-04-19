@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.14] - 2026-04-19
+
+### Fixed
+
+- Changed the online discovery flow to stream candidate devices into the scan results as soon as they are found instead of waiting for the full discovery dataset to finish.
+- Updated the scan result store to merge late-arriving neighbor evidence back into already visible rows so names and optional columns refresh progressively during scanning.
+- Reduced the “long scan with no visible results” issue by exposing neighbor-table candidates and active-probe discoveries incrementally while the final evidence enrichment continues in the background.
+
 ## [0.2.13] - 2026-04-18
 
 ### Changed

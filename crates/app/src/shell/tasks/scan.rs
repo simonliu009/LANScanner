@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+
 use iced::Task;
 use iced::futures::SinkExt;
 use iced::task::Handle;
 use platform::network as platform_network;
 use ssh_core::network::NetworkInterface;
-use ssh_core::scanner::{TcpProbeReport, build_layered_scan_devices_from_probe_report};
+use ssh_core::scanner::{
+    LayeredScanDevice, NeighborEvidence, TcpProbeReport,
+    build_layered_scan_devices_from_probe_report,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -15,21 +20,51 @@ pub(super) fn spawn_scan_task(
     session_id: u64,
 ) -> (Task<Message>, Handle) {
     let stream = iced::stream::channel::<Message>(100, async move |mut output| {
-        let (online_ips, evidence_by_ip) = platform_network::discover_online_neighbor_dataset(
-            &network.local_ip,
-            &network.ip_range,
-        )
-        .await;
+        let (candidate_tx, mut candidate_rx) = mpsc::unbounded_channel();
+        let worker_network = network.clone();
+        let worker = tokio::spawn(async move {
+            platform_network::discover_online_neighbor_candidates_streaming(
+                &worker_network.local_ip,
+                &worker_network.ip_range,
+                candidate_tx,
+            )
+            .await
+        });
+
+        while let Some(candidate) = candidate_rx.recv().await {
+            if cancel_token.is_cancelled() {
+                return;
+            }
+
+            let ip = candidate.ip.clone();
+            let evidence = candidate.evidence.clone();
+            if output
+                .send(Message::ScanOnlineDatasetReady {
+                    session_id,
+                    evidence_by_ip: std::iter::once((ip.clone(), evidence.clone())).collect(),
+                })
+                .await
+                .is_err()
+            {
+                return;
+            }
+
+            let device = layered_device_from_candidate(ip, evidence);
+            if output
+                .send(Message::ScanDeviceDiscovered { session_id, device })
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+
+        let candidates = worker.await.unwrap_or_default();
+        let (online_ips, evidence_by_ip) = platform_network::split_neighbor_candidates(candidates);
 
         if cancel_token.is_cancelled() {
             return;
         }
-
-        let layered_devices = build_layered_scan_devices_from_probe_report(
-            online_ips,
-            &TcpProbeReport::default(),
-            evidence_by_ip.clone(),
-        );
 
         if output
             .send(Message::ScanOnlineDatasetReady {
@@ -42,7 +77,7 @@ pub(super) fn spawn_scan_task(
             return;
         }
 
-        let total = layered_devices.online_devices.len();
+        let total = online_ips.len();
         if total == 0 {
             let _ = output
                 .send(Message::ScanProgress {
@@ -54,37 +89,32 @@ pub(super) fn spawn_scan_task(
             let _ = output.send(Message::ScanFinished { session_id }).await;
             return;
         }
-
-        for (idx, device) in layered_devices.online_devices.into_iter().enumerate() {
-            if cancel_token.is_cancelled() {
-                return;
-            }
-
-            if output
-                .send(Message::ScanProgress {
-                    session_id,
-                    scanned: idx + 1,
-                    total,
-                })
-                .await
-                .is_err()
-            {
-                return;
-            }
-
-            if output
-                .send(Message::ScanDeviceDiscovered { session_id, device })
-                .await
-                .is_err()
-            {
-                return;
-            }
-        }
+        let _ = output
+            .send(Message::ScanProgress {
+                session_id,
+                scanned: total,
+                total,
+            })
+            .await;
 
         let _ = output.send(Message::ScanFinished { session_id }).await;
     });
 
     Task::run(stream, |message| message).abortable()
+}
+
+fn layered_device_from_candidate(ip: String, evidence: NeighborEvidence) -> LayeredScanDevice {
+    let mut evidence_by_ip = HashMap::with_capacity(1);
+    evidence_by_ip.insert(ip.clone(), evidence);
+    build_layered_scan_devices_from_probe_report(
+        vec![ip],
+        &TcpProbeReport::default(),
+        evidence_by_ip,
+    )
+    .online_devices
+    .into_iter()
+    .next()
+    .expect("single candidate should produce one layered device")
 }
 
 pub(super) fn spawn_ssh_probe_task(
