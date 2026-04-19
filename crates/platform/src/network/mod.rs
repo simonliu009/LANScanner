@@ -139,6 +139,20 @@ pub async fn refresh_missing_mac_evidence(
         return enrich_evidence_by_ip(evidence_by_ip).await;
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        for row in macos_backend::refresh_neighbor_rows_with_native_helper(&missing_mac_ips).await {
+            if !discovered.contains(row.ip.as_str()) {
+                continue;
+            }
+
+            evidence_by_ip
+                .entry(row.ip)
+                .and_modify(|current| merge_neighbor_evidence(current, row.evidence.clone()))
+                .or_insert(row.evidence);
+        }
+    }
+
     trigger_ping_neighbor_refresh(&missing_mac_ips).await;
 
     for attempt in 0..ACTIVE_DISCOVERY_NEIGHBOR_REFRESH_ATTEMPTS {

@@ -2,7 +2,22 @@ import Darwin
 import Foundation
 
 enum NeighborSnapshotProvider {
+    private static let udpPrimingPorts: [UInt16] = [33434, 5353, 137]
+    private static let tcpPrimingPorts: [UInt16] = [22, 80, 443, 445]
+
     static func snapshot() -> [NeighborRow] {
+        snapshotRows()
+    }
+
+    static func refresh(ips: [String]) -> [NeighborRow] {
+        let targets = sanitizedRefreshTargets(ips)
+        if !targets.isEmpty {
+            primeNeighborCache(for: targets)
+        }
+        return snapshotRows()
+    }
+
+    private static func snapshotRows() -> [NeighborRow] {
         guard let buffer = routeSnapshotBuffer() else {
             return []
         }
@@ -37,6 +52,131 @@ enum NeighborSnapshotProvider {
             .sorted { left, right in
                 compareIPv4Strings(left.ip, right.ip)
             }
+    }
+
+    private static func sanitizedRefreshTargets(_ ips: [String]) -> [String] {
+        var seen = Set<String>()
+        return ips
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { isUsableIPv4($0) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    private static func primeNeighborCache(for ips: [String]) {
+        for ip in ips {
+            runPing(ip: ip)
+            sendUDPPriming(ip: ip)
+            attemptTCPPriming(ip: ip)
+        }
+    }
+
+    private static func runPing(ip: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/sbin/ping")
+        process.arguments = ["-c", "1", "-W", "1000", ip]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(1.2)
+        while process.isRunning && deadline.timeIntervalSinceNow > 0 {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+
+        if process.isRunning {
+            process.terminate()
+        }
+    }
+
+    private static func sendUDPPriming(ip: String) {
+        for port in udpPrimingPorts {
+            guard var target = ipv4Sockaddr(ip: ip, port: port) else {
+                continue
+            }
+
+            let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+            if fd < 0 {
+                continue
+            }
+            defer { close(fd) }
+
+            var timeout = timeval(tv_sec: 0, tv_usec: 250_000)
+            withUnsafePointer(to: &timeout) { pointer in
+                _ = setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_SNDTIMEO,
+                    pointer,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
+
+            var payload: UInt8 = 0
+            withUnsafePointer(to: &target) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                    _ = withUnsafePointer(to: &payload) { payloadPointer in
+                        sendto(
+                            fd,
+                            payloadPointer,
+                            1,
+                            0,
+                            sockaddrPointer,
+                            socklen_t(MemoryLayout<sockaddr_in>.size)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private static func attemptTCPPriming(ip: String) {
+        for port in tcpPrimingPorts {
+            guard var target = ipv4Sockaddr(ip: ip, port: port) else {
+                continue
+            }
+
+            let fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+            if fd < 0 {
+                continue
+            }
+            defer { close(fd) }
+
+            let flags = fcntl(fd, F_GETFL, 0)
+            if flags >= 0 {
+                _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+            }
+
+            let connectResult = withUnsafePointer(to: &target) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                    connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+
+            if connectResult == 0 {
+                continue
+            }
+
+            if errno != EINPROGRESS {
+                continue
+            }
+
+            var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            let pollResult = poll(&descriptor, 1, 250)
+            if pollResult <= 0 {
+                continue
+            }
+
+            var socketError: Int32 = 0
+            var errorLength = socklen_t(MemoryLayout<Int32>.size)
+            if getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError, &errorLength) == 0 {
+                _ = socketError
+            }
+        }
     }
 
     private static func routeSnapshotBuffer() -> [UInt8]? {
@@ -174,6 +314,21 @@ enum NeighborSnapshotProvider {
             return false
         }
         return true
+    }
+
+    private static func ipv4Sockaddr(ip: String, port: UInt16) -> sockaddr_in? {
+        var address = in_addr()
+        guard inet_pton(AF_INET, ip, &address) == 1 else {
+            return nil
+        }
+
+        return sockaddr_in(
+            sin_len: __uint8_t(MemoryLayout<sockaddr_in>.size),
+            sin_family: sa_family_t(AF_INET),
+            sin_port: in_port_t(port.bigEndian),
+            sin_addr: address,
+            sin_zero: (0, 0, 0, 0, 0, 0, 0, 0)
+        )
     }
 
     private static func compareIPv4Strings(_ left: String, _ right: String) -> Bool {

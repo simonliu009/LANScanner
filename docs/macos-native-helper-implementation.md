@@ -27,6 +27,7 @@ Rust 主程序负责：
 helper 负责：
 
 - 提供稳定快照
+- 在缺失 MAC 的场景下执行定向邻居刷新
 - 屏蔽 Apple 平台 API 差异
 
 ## 第一阶段功能
@@ -64,6 +65,22 @@ neighbors --contract neighbor-snapshot-v1
 - `hostname`
 - `mdns_name`
 
+## 第二阶段功能
+
+### neighbors refresh
+
+输入：
+
+```text
+neighbors-refresh --contract neighbor-refresh-v1 --ips 192.168.31.5,192.168.31.20
+```
+
+行为：
+
+- helper 先对指定 IP 做主动邻居缓存刷新
+- 然后重新读取邻居快照
+- 输出格式与 `neighbors` 相同
+
 ## Swift 端建议拆分
 
 - `InterfaceSnapshotProvider`
@@ -89,16 +106,17 @@ neighbors --contract neighbor-snapshot-v1
 - `neighbor_rows.rs`
   已经支持 helper 优先的 macOS 邻居读取
 - `network/mod.rs`
-  下一步要把接口发现也切到 helper 优先
+  已经支持在 macOS 下优先读取 helper 的接口快照
 - `macos_backend.rs`
-  后续增加 interface 快照解析和 helper 健康检查
+  已经支持 interface / neighbor snapshot 解析，以及按 IP 定向触发 helper refresh
 
-## 第二阶段功能
+## 后续增强
 
 - 默认网关原生读取
 - mDNS 主动补全
 - NetBIOS / SMB 名称补全
 - IPv6 邻居表读取
+- 更强的主动 priming（UDP / TCP）而不只是 ping
 
 ## 验证标准
 
@@ -108,3 +126,8 @@ neighbors --contract neighbor-snapshot-v1
 - 不依赖 `arp` 解析即可列出 IPv4 邻居
 - helper 缺失时自动回退旧路径
 - 上层扫描 UI 和会话流程无须修改
+
+完成第二阶段定向补刷后，还应满足：
+
+- 缺失 MAC 的设备可以通过 helper 的定向 refresh 路径优先尝试补全
+- helper refresh 失败时仍回退到现有 ping 刷新逻辑

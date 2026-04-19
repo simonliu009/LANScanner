@@ -37,6 +37,10 @@ macOS 11 (Big Sur)
 - `interfaces snapshot --contract interface-snapshot-v1`
 - `neighbors snapshot --contract neighbor-snapshot-v1`
 
+第二阶段增加定向补刷命令：
+
+- `neighbors-refresh --contract neighbor-refresh-v1 --ips ip1,ip2`
+
 ## 输出协议
 
 ### interfaces
@@ -66,6 +70,20 @@ ip|mac|hostname|mdns_name
 ```text
 192.168.31.5|B8:27:EB:11:22:33|raspi|raspi.local
 ```
+
+### neighbors-refresh
+
+输入：
+
+```text
+neighbors-refresh --contract neighbor-refresh-v1 --ips 192.168.31.5,192.168.31.20
+```
+
+行为：
+
+- helper 会先对指定 IP 做主动邻居缓存刷新
+- 然后重新输出邻居快照
+- 输出格式与 `neighbors` 相同
 
 ## 实现建议
 

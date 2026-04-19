@@ -19,6 +19,8 @@ const MACOS_ARP_HELPER_NAME: &str = "lanscanner-macos-arp-helper";
 const MACOS_INTERFACE_HELPER_CONTRACT: &str = "interface-snapshot-v1";
 #[cfg(any(target_os = "macos", test))]
 const MACOS_ARP_HELPER_CONTRACT: &str = "neighbor-snapshot-v1";
+#[cfg(any(target_os = "macos", test))]
+const MACOS_ARP_REFRESH_HELPER_CONTRACT: &str = "neighbor-refresh-v1";
 
 #[cfg(any(target_os = "macos", test))]
 pub(super) async fn collect_neighbor_rows_with_native_helper() -> Vec<NeighborEvidenceRow> {
@@ -65,6 +67,52 @@ pub(super) async fn collect_interfaces_with_native_helper() -> Vec<NetworkInterf
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(parse_native_helper_interface_row)
+        .collect()
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub(super) async fn refresh_neighbor_rows_with_native_helper(
+    ips: &[String],
+) -> Vec<NeighborEvidenceRow> {
+    if ips.is_empty() {
+        return Vec::new();
+    }
+
+    let Some(helper_path) = resolve_native_helper_path() else {
+        return Vec::new();
+    };
+
+    let joined_ips = ips
+        .iter()
+        .map(|ip| ip.trim())
+        .filter(|ip| !ip.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    if joined_ips.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(output) = Command::new(&helper_path)
+        .args([
+            "neighbors-refresh",
+            "--contract",
+            MACOS_ARP_REFRESH_HELPER_CONTRACT,
+            "--ips",
+            joined_ips.as_str(),
+        ])
+        .output()
+        .await
+    else {
+        return Vec::new();
+    };
+
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_native_helper_row)
         .collect()
 }
 

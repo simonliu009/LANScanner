@@ -8,6 +8,10 @@ struct NeighborSnapshotContract {
     static let name = "neighbor-snapshot-v1"
 }
 
+struct NeighborRefreshContract {
+    static let name = "neighbor-refresh-v1"
+}
+
 struct InterfaceRow {
     let id: String
     let name: String
