@@ -110,17 +110,19 @@ pub(super) fn handle_scan_finished(app: &mut ShellApp, session_id: u64) -> Task<
     app.scan_task_handle = None;
     let finished_phase = app.scan_phase.take();
 
+    let missing_mac_refresh_task = missing_mac_refresh_task(app);
+
     if matches!(finished_phase, Some(ScanPhase::DiscoverOnline))
         && let Some(task) = start_ssh_probe_if_needed(app)
     {
-        return task;
+        return Task::batch([task, missing_mac_refresh_task]);
     }
 
     app.is_scanning = false;
     app.scan_auto_verify_enabled = false;
     app.has_scanned = true;
     sync_verify_runtime_flags(app);
-    Task::none()
+    missing_mac_refresh_task
 }
 
 pub(super) fn handle_scan_ssh_probe_finished(
@@ -482,6 +484,22 @@ pub(super) fn pending_ssh_probe_ips(app: &ShellApp) -> Vec<String> {
         .filter(|layered| layered.ssh_port_status == SshPortProbeStatus::Unchecked)
         .map(|layered| layered.device.ip.clone())
         .collect()
+}
+
+fn missing_mac_refresh_task(app: &ShellApp) -> Task<Message> {
+    let candidate_ips = app
+        .online_devices
+        .iter()
+        .filter(|layered| {
+            app.online_evidence_by_ip
+                .get(layered.device.ip.as_str())
+                .and_then(|evidence| evidence.mac_address.as_deref())
+                .is_none()
+        })
+        .map(|layered| layered.device.ip.clone())
+        .collect::<Vec<_>>();
+
+    scan_tasks::spawn_missing_mac_refresh_task(candidate_ips, app.scan_session_id)
 }
 
 pub(super) fn start_ssh_probe_if_needed(app: &mut ShellApp) -> Option<Task<Message>> {

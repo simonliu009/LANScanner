@@ -42,6 +42,13 @@ pub(crate) mod tasks {
         ) -> (iced::Task<crate::message::Message>, iced::task::Handle) {
             super::scan_impl::spawn_ssh_probe_task(network, candidate_ips, cancel_token, session_id)
         }
+
+        pub(in super::super) fn spawn_missing_mac_refresh_task(
+            candidate_ips: Vec<String>,
+            session_id: u64,
+        ) -> iced::Task<crate::message::Message> {
+            super::scan_impl::spawn_missing_mac_refresh_task(candidate_ips, session_id)
+        }
     }
 
     pub(crate) mod verify {

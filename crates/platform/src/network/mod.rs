@@ -66,6 +66,9 @@ const NEIGHBOR_PRIMING_UDP_PORT: u16 = 33434;
 const NEIGHBOR_PRIMING_TIMEOUT_MS: u64 = 2500;
 const NEIGHBOR_REFRESH_ATTEMPTS: usize = 4;
 const NEIGHBOR_REFRESH_INTERVAL_MS: u64 = 250;
+const ACTIVE_DISCOVERY_NEIGHBOR_REFRESH_ATTEMPTS: usize = 3;
+const MAC_REFRESH_PING_TIMEOUT_MS: u64 = 900;
+const MAC_REFRESH_PING_CONCURRENCY: usize = 24;
 
 pub fn ensure_registered() {
     static INIT: Once = Once::new();
@@ -94,6 +97,64 @@ pub async fn collect_neighbor_evidence(
             .entry(row.ip)
             .and_modify(|current| merge_neighbor_evidence(current, row.evidence.clone()))
             .or_insert(row.evidence);
+    }
+
+    enrich_evidence_by_ip(evidence_by_ip).await
+}
+
+pub async fn refresh_missing_mac_evidence(
+    discovered_ips: &[String],
+) -> HashMap<String, NeighborEvidence> {
+    if discovered_ips.is_empty() {
+        return HashMap::new();
+    }
+
+    let discovered: HashSet<_> = discovered_ips.iter().map(String::as_str).collect();
+    let mut evidence_by_ip = HashMap::new();
+
+    for row in collect_system_neighbor_rows().await {
+        if !discovered.contains(row.ip.as_str()) {
+            continue;
+        }
+
+        evidence_by_ip
+            .entry(row.ip)
+            .and_modify(|current| merge_neighbor_evidence(current, row.evidence.clone()))
+            .or_insert(row.evidence);
+    }
+
+    let missing_mac_ips = discovered_ips
+        .iter()
+        .filter(|ip| {
+            evidence_by_ip
+                .get(ip.as_str())
+                .and_then(|evidence| evidence.mac_address.as_deref())
+                .is_none()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if missing_mac_ips.is_empty() {
+        return enrich_evidence_by_ip(evidence_by_ip).await;
+    }
+
+    trigger_ping_neighbor_refresh(&missing_mac_ips).await;
+
+    for attempt in 0..ACTIVE_DISCOVERY_NEIGHBOR_REFRESH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(NEIGHBOR_REFRESH_INTERVAL_MS)).await;
+        }
+
+        for row in collect_system_neighbor_rows().await {
+            if !discovered.contains(row.ip.as_str()) {
+                continue;
+            }
+
+            evidence_by_ip
+                .entry(row.ip)
+                .and_modify(|current| merge_neighbor_evidence(current, row.evidence.clone()))
+                .or_insert(row.evidence);
+        }
     }
 
     enrich_evidence_by_ip(evidence_by_ip).await
@@ -164,12 +225,18 @@ async fn discover_online_neighbor_candidates_with_stream(
     stream_neighbor_candidate(&stream_tx, local_candidate.clone());
     synthetic_candidates.push(local_candidate);
     candidates.extend(synthetic_candidates);
-    candidates = refresh_neighbor_candidates_after_priming(
-        candidates,
-        collect_system_neighbor_rows().await,
-        local_ip_addr,
-        subnet_cidr,
-    );
+    for attempt in 0..ACTIVE_DISCOVERY_NEIGHBOR_REFRESH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(NEIGHBOR_REFRESH_INTERVAL_MS)).await;
+        }
+        candidates = refresh_neighbor_candidates_after_priming(
+            candidates,
+            collect_system_neighbor_rows().await,
+            local_ip_addr,
+            subnet_cidr,
+        );
+    }
+    candidates = refresh_missing_mac_candidates(candidates, local_ip_addr, subnet_cidr).await;
 
     let (ordered_ips, mut evidence_by_ip) = split_neighbor_candidates(candidates);
     evidence_by_ip = enrich_evidence_by_ip(evidence_by_ip).await;
@@ -1586,6 +1653,39 @@ async fn active_scan_fallback_candidates(
         .collect()
 }
 
+async fn refresh_missing_mac_candidates(
+    current_candidates: Vec<NeighborCandidate>,
+    local_ip: Ipv4Addr,
+    subnet: Ipv4Subnet,
+) -> Vec<NeighborCandidate> {
+    let missing_mac_ips = current_candidates
+        .iter()
+        .filter(|candidate| candidate.evidence.mac_address.is_none())
+        .map(|candidate| candidate.ip.clone())
+        .collect::<Vec<_>>();
+
+    if missing_mac_ips.is_empty() {
+        return current_candidates;
+    }
+
+    trigger_ping_neighbor_refresh(&missing_mac_ips).await;
+
+    let mut refreshed = current_candidates;
+    for attempt in 0..ACTIVE_DISCOVERY_NEIGHBOR_REFRESH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(NEIGHBOR_REFRESH_INTERVAL_MS)).await;
+        }
+        refreshed = refresh_neighbor_candidates_after_priming(
+            refreshed,
+            collect_system_neighbor_rows().await,
+            local_ip,
+            subnet,
+        );
+    }
+
+    refreshed
+}
+
 fn build_neighbor_candidates(
     rows: Vec<NeighborEvidenceRow>,
     _local_ip: Ipv4Addr,
@@ -1685,6 +1785,56 @@ async fn scan_active_hosts(
     active_hosts.sort_unstable();
     active_hosts.dedup();
     active_hosts
+}
+
+async fn trigger_ping_neighbor_refresh(ips: &[String]) {
+    if ips.is_empty() {
+        return;
+    }
+
+    let mut join_set = tokio::task::JoinSet::new();
+    for ip in ips {
+        let ip = ip.clone();
+        join_set.spawn(async move {
+            probe_ping_neighbor_cache(ip.as_str()).await;
+        });
+
+        if join_set.len() >= MAC_REFRESH_PING_CONCURRENCY {
+            let _ = join_set.join_next().await;
+        }
+    }
+
+    while join_set.join_next().await.is_some() {}
+}
+
+async fn probe_ping_neighbor_cache(ip: &str) {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("ping");
+        command.args(["-n", "1", "-w", "750", ip]);
+        process::hide_console_window_tokio(&mut command);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("ping");
+        command.args(["-c", "1", "-W", "1000", ip]);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "windows"), not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("ping");
+        command.args(["-c", "1", "-W", "1", ip]);
+        command
+    };
+
+    let _ = tokio::time::timeout(
+        Duration::from_millis(MAC_REFRESH_PING_TIMEOUT_MS),
+        command.output(),
+    )
+    .await;
 }
 
 async fn probe_host_liveness(target: Ipv4Addr) -> bool {

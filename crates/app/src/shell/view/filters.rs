@@ -28,11 +28,6 @@ pub(super) fn scan_result_filter_controls(app: &ShellApp) -> Element<'_, Message
         ),
         column_toggle(
             app.app_language,
-            ResultColumn::MacAddress,
-            app.result_column_visibility.mac_address,
-        ),
-        column_toggle(
-            app.app_language,
             ResultColumn::Hostname,
             app.result_column_visibility.hostname,
         ),

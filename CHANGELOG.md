@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.15] - 2026-04-19
+
+### Fixed
+
+- Made `MAC` a default always-visible column and removed it from the optional column checkbox set.
+- Added extra neighbor-table refresh passes plus targeted ping-based cache refreshes to improve MAC address recovery for devices discovered during active probing.
+- Scheduled an additional post-scan MAC backfill task so devices that were still missing MAC addresses at the end of discovery can refresh in place without requiring a full rescan.
+
 ## [0.2.14] - 2026-04-19
 
 ### Fixed

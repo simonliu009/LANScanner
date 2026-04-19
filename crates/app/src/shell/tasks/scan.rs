@@ -177,3 +177,20 @@ pub(super) fn spawn_ssh_probe_task(
 
     Task::run(stream, |message| message).abortable()
 }
+
+pub(super) fn spawn_missing_mac_refresh_task(
+    candidate_ips: Vec<String>,
+    session_id: u64,
+) -> Task<Message> {
+    if candidate_ips.is_empty() {
+        return Task::none();
+    }
+
+    Task::perform(
+        async move { platform_network::refresh_missing_mac_evidence(&candidate_ips).await },
+        move |evidence_by_ip| Message::ScanOnlineDatasetReady {
+            session_id,
+            evidence_by_ip,
+        },
+    )
+}

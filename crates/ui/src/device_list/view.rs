@@ -72,7 +72,7 @@ pub struct ResultColumnVisibility {
 impl Default for ResultColumnVisibility {
     fn default() -> Self {
         Self {
-            mac_address: false,
+            mac_address: true,
             hostname: false,
             vendor: false,
             dns_name: false,
@@ -109,8 +109,7 @@ impl ResultColumnVisibility {
     }
 
     pub fn has_any_optional_column(&self) -> bool {
-        self.mac_address
-            || self.hostname
+        self.hostname
             || self.vendor
             || self.dns_name
             || self.mdns_name
@@ -195,6 +194,7 @@ impl TableColumnWidths {
             TableColumn::IpAddress,
         ]
         .into_iter()
+        .chain([TableColumn::MacAddress])
         .chain(optional_columns(visible_columns).map(result_column_table_column))
         .chain([TableColumn::Status])
         .map(|column| self.width(column))
@@ -268,6 +268,12 @@ where
                 device_name_cell(device, evidence, is_emphasized, is_local, column_widths),
                 network_name_cell(evidence, is_emphasized, column_widths),
                 device_ip_cell(&device.ip, is_emphasized, column_widths),
+                result_column_cell(
+                    ResultColumn::MacAddress,
+                    evidence,
+                    is_emphasized,
+                    column_widths
+                ),
             ]
             .spacing(COLUMN_GAP)
             .align_y(Alignment::Center);
@@ -419,6 +425,12 @@ where
             TableColumn::IpAddress,
             on_resize_start,
         ),
+        table_header_cell(
+            localized(app_language, "MAC", "MAC"),
+            column_widths.width(TableColumn::MacAddress),
+            TableColumn::MacAddress,
+            on_resize_start,
+        ),
     ]
     .spacing(COLUMN_GAP)
     .align_y(Alignment::Center);
@@ -442,7 +454,6 @@ where
 
 fn optional_columns(visible_columns: ResultColumnVisibility) -> impl Iterator<Item = ResultColumn> {
     [
-        ResultColumn::MacAddress,
         ResultColumn::Hostname,
         ResultColumn::Vendor,
         ResultColumn::DnsName,
@@ -520,7 +531,7 @@ fn result_column_table_column(column: ResultColumn) -> TableColumn {
 }
 
 fn visible_column_count(visible_columns: ResultColumnVisibility) -> usize {
-    4 + optional_columns(visible_columns).count()
+    5 + optional_columns(visible_columns).count()
 }
 
 fn table_header_cell<'a, Message>(
